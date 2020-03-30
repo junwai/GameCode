@@ -210,18 +210,21 @@ class Unit():
         }
         switch.get(self.direction,'error')
     
-    def move(self,gameboard,movedirection,*args):
-        gameboard[gameboard[self.location].adjacentSquares(self.location,self.direction)]
+    def move(self,gameboard,movedirection,classMovement):
         self.attributeManager.changeAttributes('Movement',-1)
+#        classMovement.execute()
         
-    def attack(self,target,gameboard):
+    def attack(self,target,gameboard,classAttack):
         self.attributeManager.changeAttributes('Attack',-1)
+#        classAttack.execute()
         
-    def special(self):
+    def special(self,special,classSpecial):
         self.attributeManager.changeAttributes('Special',-1)
+#        classSpecial.execute()
         
-    def reaction(self):
+    def reaction(self,reaction,classReaction):
         self.attributeManager.changeAttributes('Reaction',-1)
+#        classReaction.execute()
         
 class Game:
     def __init__(self):
