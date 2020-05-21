@@ -1,44 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sat Mar 21 22:04:10 2020
+Created on Wed May 13 16:16:28 2020
 
 @author: bgool
 """
 
-# Player class initiates combat
-# Unit class initiates attack? or Player class?
-# player tells unit to initiate attack. 
-# Each unit has a combat manager object that handles abilities
-
-import collections
+# create players
+# turns
+# end turn
+# end round
 import random
 
-class Player:
-    def __init__(self,unitClass,playerID):
-        self.unitClass = unitClass
-        self.level = 1
-        self.playerID = playerID
-        self.experience = 0
-        self.combatManager = CombatManager()
-        
-    def levelUP(self,newLevel):
-        self.level = newLevel
-
-    def getLevel(self):
-        return self.level
-    
-    def receiveEXP(self, exp):
-        self.experience = self.experience + 1
-    
-    def initiateCombat(self,unit,target,gameboard,ability):
-        # pass which ability you want to use
-        gameboard = gameboard[unit].combatManager(ability,unit,target,gameboard)
-        if gameboard[target].getAttributes('Health') <= 0:
-            self.receiveEXP(1)
-            gameboard = gameboard[target].elimination(gameboard,self)
-            del gameboard[target]
-        return gameboard
-    
 class LevelManager:
     def __init__(self,level,unitClass,unitType):
         self.unitClass = unitClass
@@ -188,7 +160,37 @@ class LevelManager:
             'Common': levelSwitchC.get(self.level)
         }
         return typeSwitch.get(self.unitType)
-       
+
+# Each unit gets an instance of the ability? Or each player?
+# Add name of each ability to the list available options?
+# I think each ability will need to be integrated into the class-specific
+# code. i.e. add code to check name of available abilities at normal places
+
+class Ability:
+    
+    def findTargets(self):
+        return
+    
+    def execute(self,unit,gameboard,*args):
+#        target = random.choice(self.findTargets())
+        return
+
+class Attack(Ability):
+    name = 'Attack'
+    cost = 'Attack'
+    
+class Movement(Ability):
+    name = 'Movement'
+    cost = 'Movement'
+
+class Special(Ability):
+    name = 'Special'
+    cost = 'Special'
+
+class Reaction(Ability):
+    name = 'Reaction'
+    cost = 'Reaction'
+
 class AttributeManager:
     def __init__(self,currentAttributes):
         self.currentAttributes = currentAttributes
@@ -199,127 +201,107 @@ class AttributeManager:
     def changeAttributes(self,attribute,value):
         self.currentAttributes[attribute] = self.currentAttributes[attribute] + value
 
-
-# Organization: Each ability is its own object that is passed to the appropriate manager
-# For each ability, there will be a standard ability (attack,move,etc.) that is modified by the ability
-# This way the program has a standard reference that is changed by each ability object
-# Each unit will have an instance of the ability object that is referenced
-# Each ability will exploit overridden inherited functions if available
-        
-class AttackManager:
-    
-    #Define 'Incoming' vs 'Outgoing' Damage
-    
-    def rollCombat(unit,target,gameboard):
-        hitRoll = random.randint(1,6) + gameboard[unit].attributeManager.get('Hit')
-        evasionRoll = random.randint(1,6) + gameboard[unit].attributeManager.get('Evasion')
-        return {'HitRoll':hitRoll,'EvasionRoll':evasionRoll}
-    
-    def calculateDamage(damage,armor):
-        if damage - armor < 0:
-            return 0
-        return damage - armor
-        
-    def attack(self,unit,target,gameboard,*args):
-        gameboard[unit].attributeManager.changeAttributes('Attack',-1)
-        passedValues = (self.rollCombat(unit,target,gameboard),gameboard,unit,target)
-        # change rolls/add more stuff to hit/evasion
-        
-        if 'Piercing' in args:
-            passedValues = passedValues + 'Piercing'
-        if 'Wounding' in args:
-            passedValues = passedValues + 'Success'
-            
-        self.assignDamage(passedValues)
-        return gameboard
-    
-    def assignDamage(self,rollResults,unit,target,gameboard,*args):
-        if 'Success' in args:
-            if 'Piercing' not in args:
-                damage = self.calcArmor(gameboard,gameboard[unit].attributeManager.getAttributes('Damage'),target)
-                if damage < 0:
-                    damage = 0
-                gameboard[target].attributeManager.changeAttributes('Health',-damage)
-            else:
-                gameboard[target].attributeManager.changeAttributes('Health',-gameboard[unit].attributeManager.getAttributes('Damage'))                
-            if gameboard[target].attributeManager.getAttributes('Health') <= 0:
-                self.elimination(gameboard,)
-            return gameboard
-        elif 'Failure' in args:
-            return gameboard
-        #checkReactions
-    
-    def calcArmor(self,gameboard,damage,target):
-        newDamage = damage - gameboard[target].get('Armor')
-        return newDamage
-    
-    def special(self,special,classSpecial):
-        self.attributeManager.changeAttributes('Special',-1)
-        classSpecial.execute()
-        
-    def reaction(self,reaction,classReaction):
-        self.attributeManager.changeAttributes('Reaction',-1)
-        classReaction.execute()
-    
-    def elimination(self,gameboard):
-        return gameboard
-        
-class MovementManager:
-    def moveUnit(self,unit,target,gameboard,direction):
-        gameboard[unit].direction = direction
-        gameboard[unit].attributeManager.changeAttributes('Movement',-1)
-        if target not in gameboard:
-            gameboard[target] = unit
-        return gameboard
-    
-    def changeDirectionality(gameboard,unit,direction):
-        gameboard[unit].direction = direction
-        return gameboard
+    def setAttributes(self,attribute,value):
+        self.currentAttributes[attribute] = value
         
 class Unit:
-    def __init__(self,metadata,location,direction,players):
-        self.metadata = metadata
-        # metadata includes playerID, unitClass, unitType, number, board location, and directionality
-        self.unitID = metadata.playerID+'_'+metadata.unitType+str(metadata.number)
-        self.location = location
-        self.direction = direction
-        self.level = self.getPlayerLevel(players)[0]
-        self.levelManager = LevelManager(self.level,metadata.unitClass,metadata.unitType)
+    
+    abilities = {'Attack':Attack(), 'Movement':Movement(),'Special':Special(),'Reaction':Reaction()}
+    
+    def __init__(self,unitType,unitName):
+        self.unitType = unitType
+        self.unitName = unitName    
+        self.options = self.createOptions()
+
+    def setClass(self,playerClass,playerID):
+        self.playerClass = playerClass
+        self.playerID = playerID
+        self.levelManager = LevelManager(1,playerClass,self.unitType)
         self.unitAttributes = self.levelManager.getAttributes()
         self.attributeManager = AttributeManager(self.unitAttributes)
-        self.getPlayerLevel(players)
-        self.attackManager = AttackManager()
         
-    def getPlayerLevel(self,players):
-        return [x.level for x in players if x.playerID == self.metadata.playerID]
-        
-    def adjacentSquares(self):
-        #[1,2,3,4,5,6]
-        x = self.location[0]
-        y = self.location[1]
-        switch = {
-            'n': {1:(x,y+1),2:(x+1,y+1),3:(x+1,y),4:(x,y-1),5:(x-1,y-1),6:(x-1,y)},
-            'ne': {1:(x+1,y+1),2:(x+1,y),3:(x,y-1),4:(x-1,y-1),5:(x-1,y),6:(x,y+1)},
-            'se': {1:(x-1,y-1),2:(x-1,y),3:(x,y+1),4:(x+1,y+1),5:(x+1,y),6:(x,y-1)},
-            's': {1:(x,y-1),2:(x-1,y-1),3:(x-1,y),4:(x,y+1),5:(x+1,y+1),6:(x+1,y)},
-            'sw': {1:(x+1,y),2:(x,y-1),3:(x-1,y-1),4:(x-1,y),5:(x,y+1),6:(x+1,y+1)},
-            'nw': {1:(x-1,y),2:(x,y+1),3:(x+1,y+1),4:(x+1,y),5:(x,y-1),6:(x-1,y-1)}
-        }
-        switch.get(self.direction,'error')
-
+    def createOptions(self):
+        # match ability costs to available points
+        availablePoints = [x for x in self.AttributeManager.currentAttributes if self.AttributeManager.currentAttributes.get(x) != 0]
+        options = [x for x in self.abilities.keys() if self.abilities.get(x).cost in availablePoints]
+        return options # this is ability names
     
+    def useAbility(self,ability):
+        self.AttributeManager.changeAttributes(self.abilities.get(ability).cost,-1)
+    
+class Player:
+    
+    def __init__(self,playerClass,playerID):
+        self.playerClass = playerClass
+        self.playerID = playerID
+        # instantiate new units
+        self.units = {'Elite':Unit('Elite','Elite1'),'Common1':Unit('Common','Common1'),\
+                      'Common2':Unit('Common','Common2'),'Common3':Unit('Common','Common3'),\
+                      'Common4':Unit('Common','Common4')}
+        for unit in self.units:
+            self.unit.setClass(self.playerClass,self.playerID)
+        self.experiencePoints = 0
+        self.victoryPoints = 0
+        self.level = 1
+        
+    def turn(self,gameboard):
+        # while not passed keep going
+        unitChoices = {x:gameboard.get(x) for x in gameboard.keys() if gameboard.get(x).PlayerID == self.playerID}
+        unitChoices['Pass'] = 'Pass'
+        
+        while True:
+            for unit in self.units:
+                unit.unitOptions = unit.createOptions()
+            unitChoice = unitChoices.get(random.choice(unitChoices.keys()))
+            if unitChoice == 'Pass':
+                break
+            unitChoice.abilities.get(random.choice(unitChoice.unitOptions)).execute()
+            
+            # then pick an option
+        return gameboard
+    
+    def addUnit(self,name,location,gameboard):
+        # add one of your units to the board game
+        gameboard[location] = self.units.get(name)
+        return gameboard
+    
+    def gainExp(self):
+        self.experiencePoints = self.experiencePoints + 1
+    
+    def manageExp(self):
+        # handle leveling and returning abilities
+        for x in range(0,self.experiencePoints):
+            self.levelUp()
+        self.experiencePoints = 0
+    
+    def levelUp(self):
+        self.level = self.level + 1
+        for unit in self.units:
+            unit.levelManager.level = self.level
     
 class Game:
-    def __init__(self):
-        self.gameboard = {}
-        self._unit = collections.namedtuple('unit','playerID unitClass unitType number')
-        self.players = [Player('Warrior','Player1'), Player('Assassin','Player2')]
+    
+    directions = ['n','ne','se','s','sw','nw']
+    
+    def __init__(self,players):
+        self.players = players
         
-    def placeUnit(self,location,drn,players):
-        self.gameboard[location] = Unit(self._unit(playerID = 'Player1', unitClass= 'Warrior', unitType='Common', number = 1), location,drn,players)
-
-    def main(self):
-        self.gameboard[(0,0)] = Unit(self._unit(playerID = self.players[0].playerID, unitClass= 'Warrior', unitType='Common', number = 1),[0,0],'n',self.players)
-        self.placeUnit((0,0),'n',self.players)
+    def gameLoop(self):
         
-Game().main()
+        while True:
+            for player in self.players:
+                player.turn()
+            self.endRound()
+            
+    def endRound(self):
+        for player in self.players:
+            player.manageExp()
+            for unit in player.units:
+                # note health, set max attributes, set current health
+                health = unit.attributeManager.getAttributes('Health')
+                unit.levelManager.classAttributes()
+                unit.attributeManager.setAttributes('Health',health)
+        
+# instantiate game
+Game([Player('Warrior','Player1'),Player('Assassin','Player2'), \
+      Player('Mage','Player3'),Player('Engineer','Player4')])
