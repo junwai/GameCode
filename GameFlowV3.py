@@ -14,8 +14,14 @@ import random
 class GeneralUse:
 
     directions = ['n','ne','se','s','sw','nw']
-
-    def adjacentSquares(self):
+    
+    def adjacentSpaces(self):
+        x = self.location[0]
+        y = self.location[1]        
+        
+        return [(x,y+1),(x+1,y+1),(x+1,y),(x,y-1),(x-1,y-1),(x-1,y)]
+        
+    def adjacentSpacesDir(self):
         #[1,2,3,4,5,6]
         x = self.location[0]
         y = self.location[1]
@@ -27,8 +33,8 @@ class GeneralUse:
             'sw': {1:(x+1,y),2:(x,y-1),3:(x-1,y-1),4:(x-1,y),5:(x,y+1),6:(x+1,y+1)},
             'nw': {1:(x-1,y),2:(x,y+1),3:(x+1,y+1),4:(x+1,y),5:(x,y-1),6:(x-1,y-1)}
         }
-        switch.get(self.direction,'error')            
-        
+        return switch.get(self.direction,'error')            
+           
     def dealDamage(self,unit,target,gameboard,damage):
         if type(gameboard[target]).__name__ == 'Objective':
             damage = damage - gameboard[target].getArmor(gameboard)
@@ -106,7 +112,7 @@ class CaptureRespawn(Ability):
     
 class Attack(Ability):
     name = 'Attack'
-    cost = 'Attack' 
+    cost = ['Attack']
     
     def abilityEffect(self,unit,target,gameboard):
         gameboard[unit].changeAttributes('Attack',-1)
@@ -116,7 +122,7 @@ class Attack(Ability):
 class Movement(Ability):
     
     name = 'Movement'
-    cost = 'Movement'
+    cost = ['Movement']
     
     def availableMovement(self,unit,gameboard,*args):
         respawns = [x for x in gameboard if type(x).__name__ == 'Respawn']
@@ -157,7 +163,7 @@ class Movement(Ability):
 
 class Reorient(Ability):
     name = 'Reorient'
-    cost = 'Passive'
+    cost = ['Passive']
     state = 'ReceiveDamage'
     
     def abilityEffect(self,unit,target,gameboard):
@@ -166,7 +172,7 @@ class Reorient(Ability):
     
 class Perception(Ability):
     name = 'Perception'
-    cost = 'Reaction'
+    cost = ['Reaction']
     state = 'Any'
     
     def abilityEffect(self,unit,target,gameboard):
@@ -175,7 +181,7 @@ class Perception(Ability):
     
 class AccurateStrike(Ability):
     name = 'AccurateStrike'
-    cost = 'Reaction'
+    cost = ['Reaction']
     state = 'Hit'
     
     def abilityEffect(*args):
@@ -183,7 +189,7 @@ class AccurateStrike(Ability):
     
 class Avoid(Ability):
     name = 'Avoid'
-    cost = ('Reaction','Movement')
+    cost = ['Reaction','Movement']
     state = 'LostEvasion'
     
     def abilityEffect(self,unit,target,gameboard):
@@ -192,7 +198,7 @@ class Avoid(Ability):
     
 class PurposefulDodge(Ability):
     name = 'PurposefulDodge'
-    cost = 'Passive'
+    cost = ['Passive']
     state = 'GreaterEvasion'
     
     def abilityEffect(self,unit,target,gameboard):
@@ -201,11 +207,11 @@ class PurposefulDodge(Ability):
     
 class RedirectedStrike(Ability):
     name = 'RedirectedStrike'
-    cost = 'Reaction'
+    cost = ['Reaction']
     state = 'MissedMeleeAttack'
     
     def abilityEffect(self,unit,target,gameboard):
-        damage = gameboard[unit].reactionManager.multipleReactionPoints(unit,gameboard)
+        #damage = gameboard[unit].reactionManager.multipleReactionPoints(unit,gameboard)
         self.combat(unit,target,gameboard)
         gameboard[unit].abilities.get('Attack').execute()
         return gameboard
@@ -389,7 +395,11 @@ class ReactionManager:
         
     def availableReactions(self,unit):
         # find available reactions with corresponding state
-        return [x for x in unit.abilities if self.state in x.state] + [Pass()]
+        if 'Reaction' in unit.availablePoints():
+            availableReactions = [x for x in unit.abilities if 'Reaction' in x.cost]
+            return [x for x in availableReactions if self.state in x.state] + ['Pass']
+        else:
+            return ['Pass']
     
     def multipleReactionPoints(self,unit,gameboard):
         maxReactions = gameboard[unit].attributeManager.getAttributes('Reaction')
@@ -417,7 +427,6 @@ class Unit(GeneralUse):
     def __init__(self,unitType,unitName):
         self.unitType = unitType
         self.unitName = unitName    
-        self.options = self.createOptions()
         
     def setClass(self,playerClass,playerID,captureCost):
         self.playerClass = playerClass
@@ -429,9 +438,17 @@ class Unit(GeneralUse):
         
     def createOptions(self):
         # match ability costs to available points
-        availablePoints = [x for x in self.attributeManager.currentAttributes if self.attributeManager.currentAttributes.get(x) != 0]
-        options = [x for a in self.abilities.keys() for x in a if self.abilities.get(x).cost in availablePoints]
+        availablePoints = self.availablePoints()
+        availablePoints.append('Reaction')
+        availablePoints = list(set(availablePoints))
+        
+        options = [x for (x,y) in dict(zip(self.abilities,[x for x in map(lambda x: set(x).issubset(set(availablePoints)), [x.cost for x in self.abilities.values()])])).items() if y==True]
+        options = [x for x in options if len(self.abilities[x].cost) == 1 and self.abilities[x].cost =='Reaction']
+        
         return options # this is ability names
+    
+    def availablePoints(self):
+        return [x for x in self.attributeManager.currentAttributes if self.attributeManager.currentAttributes.get(x) != 0]
     
     def useAbility(self,ability):
         [self.attributeManager.changeAttributes(self.abilities.get(ability).cost,-1) for x in self.abilities.get(ability).cost]
@@ -459,23 +476,24 @@ class Player(GeneralUse):
                       'Common2':Unit('Common','Common2'),'Common3':Unit('Common','Common3'),\
                       'Common4':Unit('Common','Common4')}
         for unit in self.units:
-            unit.setClass(self.playerClass,self.playerID,self.captureCost)
+            self.units[unit].setClass(self.playerClass,self.playerID,self.captureCost)
         
     def turn(self,gameboard,players):
         # while not passed keep going
 
-        unitChoices = {x:gameboard.get(x) for x in gameboard.keys() if gameboard.get(x).PlayerID == self.playerID}
+        unitChoices = {x:gameboard.get(x) for x in gameboard.keys() if type(gameboard[x]).__name__ == 'Unit' and gameboard.get(x).playerID == self.playerID}
         unitChoices['Pass'] = 'Pass'
         
         while True:
             for unit in self.units:
-                unit.unitOptions = unit.createOptions()
-            unitChoice = unitChoices.get(random.choice(unitChoices.keys()))
+                self.units[unit].unitOptions = self.units[unit].createOptions()
+            unitChoice = unitChoices.get(random.choice(list(unitChoices.keys())))
             # add feature that updates units in player
             if unitChoice == 'Pass':
                 break
             # execute ability
-            unitChoice.abilities.get(random.choice(unitChoice.unitOptions)).execute()
+            if unitChoice.unitOptions:
+                unitChoice.abilities.get(random.choice(unitChoice.unitOptions)).execute()
             for unit in gameboard:
                 if type(unit).__name__ == 'Unit' and unit.playerID == self.playerID:
                     if unit.attributeManager.getAttributes('Health') <= 0:
@@ -487,10 +505,11 @@ class Player(GeneralUse):
     def updateUnits(self,unit):
         self.units[unit.unitName] = unit
     
-    def respawnUnits(self,name,location,direction,gameboard):
-        # need to create objectives and respawns
-        respawnPoints = [b for c in [self.adjacentSpaces(a) for a in [x for x in gameboard if type(x).__name__ == 'Respawn' and x.player == self.player]] for b in c]
-        units = list(set(self.units.keys()).difference(set([gameboard[x] for x in gameboard if gameboard[x].player == self.player])))
+    def respawnUnits(self,gameboard):
+#        print([self.adjacentSpaces(a) for a in [x for x in gameboard if type(gameboard[x]).__name__ == 'Respawn' and gameboard[x].player == self.playerID]])
+        
+        respawnPoints = [b for c in [gameboard[a].adjacentSpaces() for a in [x for x in gameboard if type(gameboard[x]).__name__ == 'Respawn' and gameboard[x].playerID == self.playerID]] for b in c]
+        units = list(set(self.units.keys()).difference(set([gameboard[x] for x in gameboard if gameboard[x].playerID == self.playerID])))
         for x in units:
             location = random.choice(respawnPoints)
             gameboard = self.addUnit(self.units[x], location , gameboard)
@@ -525,9 +544,9 @@ class Player(GeneralUse):
     def levelUp(self):
         if self.level < 10:
             self.level = self.level + 1
-            for unit in self.units:
+            for unit in self.units.values():
                 unit.levelManager.level = self.level
-            self.chooseAbility(random.choice(self.availableAbilities()))
+#            self.chooseAbility(random.choice(self.availableAbilities()))
             
     def chooseAbility(self,ability):
         self.abilities = {**ability,**self.abilities}
@@ -542,7 +561,7 @@ class Player(GeneralUse):
     
 class Objective(GeneralUse):
     
-    player = 'None'
+    playerID = 'None'
     armor = 0
     health = 0
     
@@ -553,19 +572,20 @@ class Objective(GeneralUse):
         gameboard[self.location].player = 'None'
         
     def getArmor(self,gameboard):
-        return len([x for x in self.adjacentSquares if gameboard[x].player == self.player])
+        return len([x for x in self.adjacentSpaces(self.location) if gameboard[x].player == self.player])
         
     
 class Respawn(GeneralUse):
     
-    owner = 'None'
-    def __init__(self,location):
+    def __init__(self,location,player):
         self.location = location
+        self.playerID = player
 
 class Game:
     turnCounter = 0
     directions = ['n','ne','se','s','sw','nw']
-    gameboard = {(0,0):Objective((0,0)),(2,2):Respawn((2,2))}
+    gameboard = {(0,0):Objective((0,0)),(2,2):Respawn((2,2),'Player1'),(4,4):Respawn((4,4),'Player2'),\
+                 (6,6):Respawn((6,6),'Player3'),(8,8):Respawn((8,8),'Player4')}
     def __init__(self,players):
         self.players = players
         
@@ -575,27 +595,28 @@ class Game:
             for player in self.players:
                 player.respawnUnits(self.gameboard)
                 self.gameboard = player.turn(self.gameboard,self.players)
-                self.turnCounter = self.turnCounter + 1
-
+            self.turnCounter = self.turnCounter + 1
             self.endRound()
             if self.turnCounter == 10:
-                    break
+                print('end')
+                break
                 
                 
     def endRound(self):
         for player in self.players:
             player.manageExp()
-            player.addPoints(len([x for x in self.gameboard if type(self.gameboard[x]).__name__ == 'Objective' and self.gameboard[x].player == player]))
-            for unit in player.units:
+            player.gainVictoryPoints(len([x for x in self.gameboard if type(self.gameboard[x]).__name__ == 'Objective' and self.gameboard[x].playerID == player.playerID]))
+            for unit in player.units.values():
                 # note health, set max attributes, set current health
                 health = unit.attributeManager.getAttributes('Health')
                 unit.levelManager.classAttributes()
                 unit.attributeManager.setAttributes('Health',health)
         
 # instantiate game
-Game([Player('Warrior','Player1'),Player('Assassin','Player2'), \
+game = Game([Player('Warrior','Player1'),Player('Assassin','Player2'), \
       Player('Mage','Player3'),Player('Engineer','Player4')])
-    
+game.gameLoop()
+
 # Gameflow: Players take a turn(), which initiates all options for unit selection (including Pass), 
 # then all options for unitOptions(). Select a random option in unit selection, then random option for
 # the unit. For each ability, need to return a random target
