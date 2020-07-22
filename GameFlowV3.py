@@ -4,12 +4,16 @@ Created on Wed May 13 16:16:28 2020
 
 @author: bgool
 """
+#need to choose from options, picking an option calls use ability
+#if called from turn, call 'turn' costs
+#if called from reaction, call 'reaction' costs
 
 # create players
 # turns
 # end turn
 # end round
 import random
+import lineOfSight as LOS
 
 class GeneralUse:
 
@@ -42,11 +46,29 @@ class GeneralUse:
         gameboard[target].attributeManager.changeAttributes('Health',-damage)            
         return gameboard
 
+class StealthToken(GeneralUse):
+    
+    # this is the token object
+    name = 'StealthToken'
+
 class Ability(GeneralUse):
     
     state = 'None'
     
-    def getTargets(self,unitRange,unitLocation):
+    def __init__(self,unitName,player):
+        self.unitName = unitName
+        self.player = player
+    
+    def getTargets(self,unit,gameboard,args):
+        return unit
+    
+    def getLOStargets(self,unit,gameboard,args):
+        spaces = self.getAOETargets(gameboard[unit].unitRange,unit)
+        LOS = gameboard[unit].lineOfSight['Clear']+gameboard[unit].lineOfSight['Partial']
+        potentialTargets = list(set(LOS).intersection(set(spaces)))
+        return potentialTargets
+    
+    def getAOETargets(self,unitRange,unitLocation):
         
         for i in range(0,unitRange):
             spaces = list(set([a for b in [self.adjacentSpaces(x) for x in self.adjacentSpaces(unitLocation)] for a in b]))
@@ -60,34 +82,82 @@ class Ability(GeneralUse):
         return [(x,y+1),(x+1,y+1),(x+1,y),(x,y-1),(x-1,y-1),(x-1,y)]
     
     def execute(self,unit,gameboard,*args):
-        target = random.choice(self.getTargets(unit.unitRange,unit.location))
+        potentialTargets = self.getTargets(unit,gameboard,args)
+        target = random.choice(potentialTargets)
         gameboard = self.abilityEffect(unit,target,gameboard)
         gameboard[unit].reactionManager.setState('None')
         gameboard[target].reactionManager.setState('None')
-        return
+        return gameboard
 
-    def combat(self,unit,target,gameboard,*args):
-        hit = random.randint(1,6) + gameboard[unit].getAttributes('Hit')
+    def combat(self,unit,target,gameboard,mods):
+        combatSteps = {
+                'CalcHit': random.randint(1,6) + gameboard[unit].attributeManager.getAttributes('Hit'),
+                'AddHit':0,
+                'HitResult': 0,
+                'CalcEvasion': random.randint(1,6) + gameboard[target].attributeManager.getAttributes('Evasion'),
+                'AddEvasion':0,
+                'EvasionResult':0,
+                'BattleResult':[],
+                'Damage': gameboard[unit].attributeManager.getAttributes('Damage'),
+                'AddDamage': 0,
+                'Armor': gameboard[target].attributeManager.getAttributes('Armor'),
+                'ResultingDamage': 0,
+                'newPosition': False
+        }
         
+        for x in mods: 
+            if x in combatSteps:
+                combatSteps[x] = mods[x]
+
         reaction = gameboard[unit].checkReaction(unit,target,gameboard,['Hit'])
-        if reaction == True:
-            hit = hit + 1
-        evasion = random.randint(1,6) + gameboard[target].getAttributes('Evasion')
-        if hit > evasion or 'Wounding' in args:
-            damage = gameboard[unit].attributeManager.getAttributes('Damage')
-            if 'Piercing' in args:
-                gameboard = self.dealDamage(damage)
-            else:
-                gameboard = self.dealDamage(damage-gameboard[target].attributeManager.getAttributes('Armor'))
-        if hit > evasion and 'Wounding' not in args:
-            gameboard[target].checkReaction(target,unit,gameboard,['LostEvasion'])
-        if evasion >= hit + 3:
-            gameboard[target].checkReaction(target,unit,gameboard,['GreaterEvasion'])
-        if evasion >= hit:
-            gameboard[unit].checkReaction(unit,target,gameboard,['MissedMeleeAttack','Any'])
-            gameboard[target].checkReaction(target,unit,gameboard,['Any'])                        
-        return gameboard    
+        gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
         
+        combatSteps['HitResult'] = combatSteps['CalcHit'] + combatSteps['AddHit']
+
+        gameboard,combatSteps = gameboard[target].checkReaction(unit,target,gameboard,['PreEvasion'])
+        if combatSteps['newPosition']:
+            unit = combatSteps['newPosition']
+            combatSteps['newPosition'] = False
+            
+        # add additional evasion modifiers
+        reaction = gameboard[target].checkReaction(unit,target,gameboard,['Evasion'])
+        gameboard = gameboard[target].abilities[reaction].execute(unit,gameboard)
+        
+        if combatSteps['HitResults'] > combatSteps['EvasionResults'] or 'Wounding' in mods:
+            combatSteps['BattleResult'] = 'Hit'
+            
+        if 'Piercing' in mods:
+            combatSteps['Armor'] = 0
+                                    
+        if combatSteps['CombatResult'] == 'Hit':
+            combatSteps['ResultingDamage'] = combatSteps['Damage'] + combatSteps['AddDamage'] - combatSteps['Armor']
+            if combatSteps['ResultingDamage'] < 0:
+                combatSteps['ResultingDamage'] = 0
+            gameboard = self.dealDamage(unit,target,gameboard,combatSteps['ResultingDamage'])
+            
+        if combatSteps['BattleResult'] == 'Hit' and 'Wounding' not in mods:
+            reaction = gameboard[target].checkReaction(target,unit,gameboard,['LostEvasion'])
+            gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
+            
+        if combatSteps['CombatResult'] == 'Evasion':
+            if combatSteps['EvasionResult'] >= combatSteps['HitResult'] + 3:
+                reaction = gameboard[target].checkReaction(target,unit,gameboard,['GreaterEvasion'])
+                gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
+            else:
+                reaction = gameboard[target].checkReaction(target,unit,gameboard,['Evasion','Any'])
+                gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)                
+            reaction = gameboard[unit].checkReaction(unit,target,gameboard,['MissedMeleeAttack','Any'])
+            gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
+   
+        # ask if you want to react -> yes? ->  call function from inside here
+        return gameboard
+        
+    def updatePosition(self,combatSteps):
+        if combatSteps['newPosition']:
+            unit = combatSteps['newPosition']
+            combatSteps['newPosition'] = False
+        return unit,combatSteps
+    
     def abilityEffect(self,unit,target,gameboard):
         return gameboard
 
@@ -101,7 +171,8 @@ class CaptureObjective(Ability):
         return gameboard
 
 class CaptureRespawn(Ability):
-
+    name = 'CaptureRespawn'
+    cost = {'Passive':['Passive']}
     def abilityEffect(self,unit,target,gameboard):
         
         if target in gameboard[unit].adjacentSpaces() and hasattr(gameboard[target],'player'):
@@ -112,17 +183,19 @@ class CaptureRespawn(Ability):
     
 class Attack(Ability):
     name = 'Attack'
-    cost = ['Attack']
+    cost = {'Turn':['Attack']}
     
     def abilityEffect(self,unit,target,gameboard):
         gameboard[unit].changeAttributes('Attack',-1)
-        return self.combat(unit,target,gameboard) 
+        return self.combat(unit,target,gameboard,gameboard[unit].createCombatModifiers({'unit':unit,'target':target,'gameboard':gameboard})) 
         
+    def getTargets(self,unit,gameboard,args):
+        return self.getLOStargets(unit,gameboard,args)
     
 class Movement(Ability):
     
     name = 'Movement'
-    cost = ['Movement']
+    cost = {'Turn':['Movement']}
     
     def availableMovement(self,unit,gameboard,*args):
         respawns = [x for x in gameboard if type(x).__name__ == 'Respawn']
@@ -132,11 +205,18 @@ class Movement(Ability):
             spaces = self.adjacentSpaces(gameboard[unit].location)
         if set(spaces) & set(respawnSpaces):
             spaces = list(set(spaces + respawnSpaces))
+        for x in spaces: 
+            if x[0] < 0 or x[0] > 20 or x[1] < 0 or x[1] > 20:
+                spaces.remove[x]
         return spaces
     
     def abilityEffect(self,unit,target,gameboard,*args):
+        args = args[0]
         # pick the number of spaces you would like to move
-        numberOfSpaces = random.choice([x for x in range(1,gameboard[unit].attributeManager.getAttributes('Movement')+1)])
+        if not args:
+            numberOfSpaces = random.choice([x for x in range(1,gameboard[unit].attributeManager.getAttributes('Movement')+1)])
+        elif 'Distance' in args:
+            numberOfSpaces = args['Distance']
         # pick the path you would like to move through
         target = random.choice(self.availableMovement(unit,gameboard,args))
         for x in range(1,numberOfSpaces-2):
@@ -156,14 +236,21 @@ class Movement(Ability):
         for x in gameboard:
             if type(x).__name__ == 'Unit':
                 gameboard[x].checkReaction(x,gameboard,['Any'])
-                
-        gameboard[unit].attributeManager.changeAttributes('Movement',-distance)
+        
+        if 'Cost' in args:
+            if args['Cost'] != 'Passive':
+                gameboard[unit].attributeManager.changeAttributes(args['Cost'],-distance)
+        else:            
+            gameboard[unit].attributeManager.changeAttributes('Movement',-distance)
         gameboard[lastOpenSpace] = playerUnit
-        return gameboard
+        gameboard[lastOpenSpace].direction = random.choice(self.directions)
+        gameboard[lastOpenSpace].location = lastOpenSpace
+        gameboard[lastOpenSpace].getLineOfSight(gameboard)
+        return gameboard,lastOpenSpace
 
 class Reorient(Ability):
     name = 'Reorient'
-    cost = ['Passive']
+    cost = {'Passive':['Passive']}
     state = 'ReceiveDamage'
     
     def abilityEffect(self,unit,target,gameboard):
@@ -172,7 +259,7 @@ class Reorient(Ability):
     
 class Perception(Ability):
     name = 'Perception'
-    cost = ['Reaction']
+    cost = {'Reaction':['Reaction']}
     state = 'Any'
     
     def abilityEffect(self,unit,target,gameboard):
@@ -181,46 +268,51 @@ class Perception(Ability):
     
 class AccurateStrike(Ability):
     name = 'AccurateStrike'
-    cost = ['Reaction']
+    cost = {'Reaction':['Reaction']}
     state = 'Hit'
     
-    def abilityEffect(*args):
-        return True
+    def abilityEffect(self,unit,target,gameboard,combatSteps):
+        combatSteps['AddHit'] = combatSteps['AddHit'] + 1
+        return (gameboard,combatSteps)
     
 class Avoid(Ability):
     name = 'Avoid'
-    cost = ['Reaction','Movement']
+    cost = {'Reaction':['Reaction','Movement']}
     state = 'LostEvasion'
     
     def abilityEffect(self,unit,target,gameboard):
-        gameboard[unit].abilities.get('Movement').execute()
+        gameboard[unit].attributeManager.changeAttributes('Movement',1)
+        gameboard[unit].abilities.get('Movement').execute(unit,target,gameboard,1)
         return gameboard
     
 class PurposefulDodge(Ability):
     name = 'PurposefulDodge'
-    cost = ['Passive']
+    cost = {'Passive':['Passive']}
     state = 'GreaterEvasion'
     
-    def abilityEffect(self,unit,target,gameboard):
-        gameboard[unit].abilities.get('Movement').execute()
-        return gameboard
+    def abilityEffect(self,unit,target,gameboard,combatSteps):
+        gameboard[unit].attributeManager.changeAttributes('Movement',1)
+        gameboard, newpos = gameboard[unit].abilities.get('Movement').execute(unit,target,gameboard,1)
+        if 'Jaunt' in gameboard[target].abilities:
+            gameboard[unit] = StealthToken(gameboard[target].unitName,gameboard[target].playerID)
+        return gameboard,newpos
     
 class RedirectedStrike(Ability):
     name = 'RedirectedStrike'
-    cost = ['Reaction']
+    cost = {'Reaction':['Reaction']}
     state = 'MissedMeleeAttack'
     
-    def abilityEffect(self,unit,target,gameboard):
+    def abilityEffect(self,unit,target,gameboard,combatSteps):
         #damage = gameboard[unit].reactionManager.multipleReactionPoints(unit,gameboard)
         self.combat(unit,target,gameboard)
-        gameboard[unit].abilities.get('Attack').execute()
+        gameboard[unit].abilities.get('Attack').execute(unit,target,gameboard)
         return gameboard
     
 class Pass(Ability):
     
     name = 'Pass'
     def abilityEffect(self,unit,target,gameboard):
-        return
+        return gameboard
 
 class LevelManager:
     def __init__(self,level,unitClass,unitType):
@@ -377,7 +469,7 @@ class LevelManager:
 # I think each ability will need to be integrated into the class-specific
 # code. i.e. add code to check name of available abilities at normal places
 
-class ReactionManager:
+class ReactionManager(GeneralUse):
     # give state to reaction manager
     # search for reactions with given trigger state
     # ask user if they want to react
@@ -391,21 +483,18 @@ class ReactionManager:
         # ask if user wants to do a reaction
         # do the reaction (call ability effect)
         self.setState(states)
-        random.choice(self.availableReactions(gameboard[unit])).abilityEffect(unit,target,gameboard)
+        return random.choice(self.availableReactions(gameboard[unit]))
         
     def availableReactions(self,unit):
         # find available reactions with corresponding state
-        if 'Reaction' in unit.availablePoints():
-            availableReactions = [x for x in unit.abilities if 'Reaction' in x.cost]
-            return [x for x in availableReactions if self.state in x.state] + ['Pass']
-        else:
-            return ['Pass']
+        reactions = ['Pass'] + [x.name for x in unit.abilities.values() if 'Reaction' in x.cost and set(x.cost['Reaction']).issubset(set(unit.availablePoints())) and self.state in x.state]
+        return reactions #reaction names
     
     def multipleReactionPoints(self,unit,gameboard):
         maxReactions = gameboard[unit].attributeManager.getAttributes('Reaction')
         return random.choice([x for x in range(1,maxReactions)])
         
-class AttributeManager:
+class AttributeManager(GeneralUse):
     def __init__(self,currentAttributes):
         self.currentAttributes = currentAttributes
     
@@ -421,13 +510,14 @@ class AttributeManager:
         
 class Unit(GeneralUse):
     
-    abilities = {'Attack':Attack(), 'Movement':Movement()}
     reactionManager = ReactionManager()
+    lineOfSightManager = LOS.LineOfSight()
     
     def __init__(self,unitType,unitName):
         self.unitType = unitType
-        self.unitName = unitName    
-        
+        self.unitName = unitName
+        self.direction = 'n'
+    
     def setClass(self,playerClass,playerID,captureCost):
         self.playerClass = playerClass
         self.playerID = playerID
@@ -435,23 +525,20 @@ class Unit(GeneralUse):
         self.unitAttributes = self.levelManager.getAttributes()
         self.attributeManager = AttributeManager(self.unitAttributes)
         self.captureCost = captureCost
+        self.abilities = {'Attack':Attack(self.unitName,playerID), 'Movement':Movement(self.unitName,playerID), 'Reorient':Reorient(self.unitName,playerID), 'Perception':Perception(self.unitName,playerID),
+                 'AccurateStrike': AccurateStrike(self.unitName,playerID),'Avoid':Avoid(self.unitName,playerID),'PurposefulDodge':PurposefulDodge(self.unitName,playerID),'RedirectedStrike':RedirectedStrike(self.unitName,playerID)}
         
     def createOptions(self):
         # match ability costs to available points
-        availablePoints = self.availablePoints()
-        availablePoints.append('Reaction')
-        availablePoints = list(set(availablePoints))
-        
-        options = [x for (x,y) in dict(zip(self.abilities,[x for x in map(lambda x: set(x).issubset(set(availablePoints)), [x.cost for x in self.abilities.values()])])).items() if y==True]
-        options = [x for x in options if len(self.abilities[x].cost) == 1 and self.abilities[x].cost =='Reaction']
-        
+        # excludes passives since it matches available points to cost
+        options = [x.name for x in self.abilities.values() if 'Turn' in x.cost and set(x.cost['Turn']).issubset(set(self.availablePoints()))]
         return options # this is ability names
     
     def availablePoints(self):
         return [x for x in self.attributeManager.currentAttributes if self.attributeManager.currentAttributes.get(x) != 0]
     
-    def useAbility(self,ability):
-        [self.attributeManager.changeAttributes(self.abilities.get(ability).cost,-1) for x in self.abilities.get(ability).cost]
+    def useAbility(self,ability,time):
+        [self.attributeManager.changeAttributes(x,-1) for x in self.abilities.get(ability).cost[time]]
     
     def getDistance(self,target):
         if (target[0] - self.location[0] >= 0 and target[1] - self.location[1] <= 0) or (target[0] - self.location[0] <= 0 and target[1] - self.location[1] >= 0):
@@ -459,6 +546,12 @@ class Unit(GeneralUse):
 
         if (target[0] - self.location[0] >= 0 and target[1] - self.location[1] >= 0) or (target[0] - self.location[0] <= 0 and target[1] - self.location[1] <= 0):
             return max(abs(target[1]-self.location[1]),abs(target[0]-self.location[0]))
+    
+    def getLineOfSight(self,gameboard):
+        self.lineOfSight = self.lineOfSightManager.allLineOfSight(self.direction,self.location,gameboard)
+    
+    def createCombatModifiers(self,*args):
+        return args
     
 class Player(GeneralUse):
     
@@ -488,12 +581,11 @@ class Player(GeneralUse):
             for unit in self.units:
                 self.units[unit].unitOptions = self.units[unit].createOptions()
             unitChoice = unitChoices.get(random.choice(list(unitChoices.keys())))
-            # add feature that updates units in player
             if unitChoice == 'Pass':
                 break
             # execute ability
             if unitChoice.unitOptions:
-                unitChoice.abilities.get(random.choice(unitChoice.unitOptions)).execute()
+                unitChoice.abilities.get(random.choice(unitChoice.unitOptions)).execute(unit,gameboard)
             for unit in gameboard:
                 if type(unit).__name__ == 'Unit' and unit.playerID == self.playerID:
                     if unit.attributeManager.getAttributes('Health') <= 0:
@@ -506,7 +598,6 @@ class Player(GeneralUse):
         self.units[unit.unitName] = unit
     
     def respawnUnits(self,gameboard):
-#        print([self.adjacentSpaces(a) for a in [x for x in gameboard if type(gameboard[x]).__name__ == 'Respawn' and gameboard[x].player == self.playerID]])
         
         respawnPoints = [b for c in [gameboard[a].adjacentSpaces() for a in [x for x in gameboard if type(gameboard[x]).__name__ == 'Respawn' and gameboard[x].playerID == self.playerID]] for b in c]
         units = list(set(self.units.keys()).difference(set([gameboard[x] for x in gameboard if gameboard[x].playerID == self.playerID])))
@@ -519,6 +610,8 @@ class Player(GeneralUse):
     def addUnit(self,unit,location,gameboard):
         # add one of your units to the board game
         gameboard[location] = unit
+        gameboard[location].location = location
+        gameboard[location].lineOfSight = gameboard[location].getLineOfSight(gameboard)
         return gameboard
     
     def gainExp(self):
@@ -565,8 +658,9 @@ class Objective(GeneralUse):
     armor = 0
     health = 0
     
-    def __init__(self,location):
+    def __init__(self,location,player):
         self.location = location
+        self.playerID = player
     
     def regainNeutral(self,gameboard):
         gameboard[self.location].player = 'None'
@@ -584,8 +678,12 @@ class Respawn(GeneralUse):
 class Game:
     turnCounter = 0
     directions = ['n','ne','se','s','sw','nw']
-    gameboard = {(0,0):Objective((0,0)),(2,2):Respawn((2,2),'Player1'),(4,4):Respawn((4,4),'Player2'),\
-                 (6,6):Respawn((6,6),'Player3'),(8,8):Respawn((8,8),'Player4')}
+    gameboard = {(3,3):Respawn((3,3),'Player3'), (7,3):Objective((7,3),'Player4'), (11,3):Respawn((11,3),'None'), (15,3):Objective((15,3),'None'), (19,3):Respawn((19,3),'None'),\
+                 (3,7):Objective((3,7),'None'), (7,7):Respawn((7,7),'Player1'), (11,7):Objective((11,7),'Player2'), (15,7):Respawn((15,7),'None'), (19,7):Objective((19,7),'None'),\
+                 (3,11):Respawn((3,11),'Player3'), (7,11):Objective((7,11),'Player4'), (11,11):Respawn((11,11),'Player2'), (15,11):Objective((15,11),'None'), (19,11):Respawn((19,11),'None'),\
+                 (3,15):Objective((3,15),'None'), (7,15):Respawn((7,15),'Player1'), (11,15):Objective((11,15),'Player2'), (15,15):Respawn((15,15),'None'), (19,15):Objective((19,15),'None'),\
+                 (3,19):Respawn((3,19),'None'), (7,19):Objective((7,19),'None'), (11,19):Respawn((11,19),'Player4'), (15,19):Objective((15,19),'None'), (19,19):Respawn((19,19),'None')\
+                 }
     def __init__(self,players):
         self.players = players
         
