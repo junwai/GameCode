@@ -40,33 +40,57 @@ class GeneralUse:
         return switch.get(self.direction,'error')            
            
     def dealDamage(self,unit,target,gameboard,damage):
-        if type(gameboard[target]).__name__ == 'Objective':
+        if type(gameboard[target]).__name__ == 'Objective' or type(gameboard[target]).__name__ == 'Obstacle':
             damage = damage - gameboard[target].getArmor(gameboard)
-        gameboard[unit].checkReaction(unit,target,gameboard,['ReceiveDamage','Any'])        
-        gameboard[target].attributeManager.changeAttributes('Health',-damage)            
-        return gameboard
+        gameboard[target].attributeManager.changeAttributes('Health',-damage)
+        if gameboard[target].attributeManager.getAttributes('Health') <= 0:
+            gameboard[unit].eliminateUnit(gameboard[target].unitType,gameboard[target].playerID)
 
+            reaction = gameboard[unit].checkReaction(unit,target,gameboard,['EliminateUnit'])            
+            gameboard = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard)
+
+        return gameboard
+        
 class StealthToken(GeneralUse):
     
     # this is the token object
     name = 'StealthToken'
+    
+    def __init__(self,playerID,location):
+        self.playerID = playerID
+        self.location = location
+    
+    def stealthTokenEffect(self,unit,gameboard):
+        if 'BlastTrap' in [x for x in gameboard if gameboard[x].playerID == self.playerID and gameboard[x].unitType == 'Elite'][0].abilities and gameboard[unit].playerID != self.playerID:
+            if random.randint(1,6) > gameboard[unit].attributeManager.getAttribute('Evasion'):
+                self.dealDamage(self.location,unit,gameboard,5)
+        return gameboard
 
 class Ability(GeneralUse):
     
     state = 'None'
+    use = 'All'
     
     def __init__(self,unitName,player):
         self.unitName = unitName
         self.player = player
     
-    def getTargets(self,unit,gameboard,args):
+    def getTargets(self,unit,gameboard,*args):
         return unit
     
-    def getLOStargets(self,unit,gameboard,args):
-        spaces = self.getAOETargets(gameboard[unit].unitRange,unit)
+    def getLOSTargets(self,unit,gameboard,*args):
+        if 'Range' in args:
+            spaces = self.getAOETargets(args['Range'],unit)
+        else:
+            spaces = self.getAOETargets(gameboard[unit].unitRange,unit)
+
         LOS = gameboard[unit].lineOfSight['Clear']+gameboard[unit].lineOfSight['Partial']
         potentialTargets = list(set(LOS).intersection(set(spaces)))
         return potentialTargets
+    
+    def getMeleeTargets(self,unit,gameboard):
+        spaces = gameboard[unit].adjacentSpacesDir()
+        return [spaces[6],spaces[1],spaces[2]]
     
     def getAOETargets(self,unitRange,unitLocation):
         
@@ -91,54 +115,54 @@ class Ability(GeneralUse):
 
     def combat(self,unit,target,gameboard,mods):
         combatSteps = {
-                'CalcHit': random.randint(1,6) + gameboard[unit].attributeManager.getAttributes('Hit'),
-                'AddHit':0,
+                'CalcHit': random.randint(1,6),
+                'AddHit': gameboard[unit].attributeManager.getAttributes('Hit'),
                 'HitResult': 0,
-                'CalcEvasion': random.randint(1,6) + gameboard[target].attributeManager.getAttributes('Evasion'),
-                'AddEvasion':0,
+                'CalcEvasion': random.randint(1,6),
+                'AddEvasion':gameboard[target].attributeManager.getAttributes('Evasion'),
                 'EvasionResult':0,
-                'BattleResult':[],
+                'CombatResult':[],
                 'Damage': gameboard[unit].attributeManager.getAttributes('Damage'),
                 'AddDamage': 0,
                 'Armor': gameboard[target].attributeManager.getAttributes('Armor'),
                 'ResultingDamage': 0,
-                'newPosition': False
+                'newPosition': False,
+                'AttackMods': mods
         }
+        
+        gameboard, combatSteps = gameboard[unit].rollModifiers(unit,target,gameboard,combatSteps)
+        gameboard, combatSteps = gameboard[target].rollModifiers(unit,target,gameboard,combatSteps)
         
         for x in mods: 
             if x in combatSteps:
-                combatSteps[x] = mods[x]
-
-        reaction = gameboard[unit].checkReaction(unit,target,gameboard,['Hit'])
+                combatSteps[x] = combatSteps[x] + mods[x]
+                
+        # add additional hit modifiers
+        reaction = gameboard[unit].checkReaction(unit,target,gameboard,['AddHit'])
         gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
         
         combatSteps['HitResult'] = combatSteps['CalcHit'] + combatSteps['AddHit']
 
-        gameboard,combatSteps = gameboard[target].checkReaction(unit,target,gameboard,['PreEvasion'])
+        # add additional evasion modifiers
+        reaction = gameboard[target].checkReaction(unit,target,gameboard,['AddEvasion'])
+        gameboard,combatSteps = gameboard[target].abilities[reaction].execute(unit,gameboard)
+        
         if combatSteps['newPosition']:
             unit = combatSteps['newPosition']
             combatSteps['newPosition'] = False
-            
-        # add additional evasion modifiers
-        reaction = gameboard[target].checkReaction(unit,target,gameboard,['Evasion'])
-        gameboard = gameboard[target].abilities[reaction].execute(unit,gameboard)
+                    
+        gameboard, combatSteps = gameboard[unit].passiveMods(unit,target,gameboard,combatSteps)
+        gameboard, combatSteps = gameboard[target].passiveMods(unit,target,gameboard,combatSteps)
         
-        if combatSteps['HitResults'] > combatSteps['EvasionResults'] or 'Wounding' in mods:
-            combatSteps['BattleResult'] = 'Hit'
+        if 'Wounding' in combatSteps['AttackMods']:
+            combatSteps['CombatResult'] = 'Hit'
+            
+        if combatSteps['HitResults'] > combatSteps['EvasionResults']:
+            combatSteps['CombatResult'] = 'Hit'
             
         if 'Piercing' in mods:
             combatSteps['Armor'] = 0
-                                    
-        if combatSteps['CombatResult'] == 'Hit':
-            combatSteps['ResultingDamage'] = combatSteps['Damage'] + combatSteps['AddDamage'] - combatSteps['Armor']
-            if combatSteps['ResultingDamage'] < 0:
-                combatSteps['ResultingDamage'] = 0
-            gameboard = self.dealDamage(unit,target,gameboard,combatSteps['ResultingDamage'])
-            
-        if combatSteps['BattleResult'] == 'Hit' and 'Wounding' not in mods:
-            reaction = gameboard[target].checkReaction(target,unit,gameboard,['LostEvasion'])
-            gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
-            
+
         if combatSteps['CombatResult'] == 'Evasion':
             if combatSteps['EvasionResult'] >= combatSteps['HitResult'] + 3:
                 reaction = gameboard[target].checkReaction(target,unit,gameboard,['GreaterEvasion'])
@@ -148,7 +172,25 @@ class Ability(GeneralUse):
                 gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)                
             reaction = gameboard[unit].checkReaction(unit,target,gameboard,['MissedMeleeAttack','Any'])
             gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
-   
+                                    
+        if combatSteps['CombatResult'] == 'Hit':
+            combatSteps['ResultingDamage'] = combatSteps['Damage'] + combatSteps['AddDamage'] - combatSteps['Armor']
+            if combatSteps['ResultingDamage'] < 0:
+                combatSteps['ResultingDamage'] = 0
+            elif 'Assassin' in mods:
+                elite = [x for x in gameboard if gameboard[unit].playerID == x.playerID and x.unitType == 'Elite']
+                gameboard[elite].damageBonus = gameboard[elite].damagebonus + mods['Assassin']
+            reaction = gameboard[target].checkReaction(target,unit,gameboard,['TakeDamage'])
+            gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
+
+            gameboard = self.dealDamage(unit,target,gameboard,combatSteps['ResultingDamage'])
+            
+        if combatSteps['CombatResult'] == 'Hit' and 'Wounding' not in 'AttackMods':
+            reaction = gameboard[target].checkReaction(target,unit,gameboard,['LostEvasion'])
+            gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
+
+        gameboard, combatSteps = gameboard[unit].passiveMods(unit,target,gameboard,combatSteps)
+        gameboard, combatSteps = gameboard[target].passiveMods(unit,target,gameboard,combatSteps)
         # ask if you want to react -> yes? ->  call function from inside here
         return gameboard
         
@@ -189,28 +231,31 @@ class Attack(Ability):
         gameboard[unit].changeAttributes('Attack',-1)
         return self.combat(unit,target,gameboard,gameboard[unit].createCombatModifiers({'unit':unit,'target':target,'gameboard':gameboard})) 
         
-    def getTargets(self,unit,gameboard,args):
-        return self.getLOStargets(unit,gameboard,args)
+    def getTargets(self,unit,gameboard,*args):
+        return list(set(self.getLOSTargets(unit,gameboard,args)).intersection(set(self.getAOETargets(gameboard[unit].unitRange,gameboard[unit].location))))
     
 class Movement(Ability):
     
     name = 'Movement'
     cost = {'Turn':['Movement']}
     
-    def availableMovement(self,unit,gameboard,*args):
+    def availableMovement(self,unit,gameboard,origin,*args):
         respawns = [x for x in gameboard if type(x).__name__ == 'Respawn']
         respawnSpaces = [a for b in [gameboard[unit].adjacentSpaces(x) for x in respawns if x.player == gameboard[unit].player] for a in b]
-        spaces = [x for x in gameboard[unit].adjacentSpaces(gameboard[unit].location) if x not in gameboard]
+        spaces = [x for x in gameboard[unit].adjacentSpaces(unit) if x not in gameboard or type(gameboard[x]).__name__ == 'StealthToken' or x == origin]
         if 'unrestrained' in args:
-            spaces = self.adjacentSpaces(gameboard[unit].location)
+            spaces = self.adjacentSpaces(unit)
         if set(spaces) & set(respawnSpaces):
             spaces = list(set(spaces + respawnSpaces))
         for x in spaces: 
             if x[0] < 0 or x[0] > 20 or x[1] < 0 or x[1] > 20:
                 spaces.remove[x]
+        spaces = spaces + gameboard[unit].addMovementSpaces(self,unit,gameboard,spaces)
+            
         return spaces
     
     def abilityEffect(self,unit,target,gameboard,*args):
+        # args is a manually input distance
         args = args[0]
         # pick the number of spaces you would like to move
         if not args:
@@ -218,18 +263,16 @@ class Movement(Ability):
         elif 'Distance' in args:
             numberOfSpaces = args['Distance']
         # pick the path you would like to move through
-        target = random.choice(self.availableMovement(unit,gameboard,args))
-        for x in range(1,numberOfSpaces-2):
-            target = target + random.choice(self.availableMovement(target[x],gameboard,args))
         
-        # take out unit from gameboard temporarily
+        target = random.choice(self.availableMovement(unit,gameboard,unit,args))
+        for x in range(1,numberOfSpaces-2):
+            target = target + random.choice(self.availableMovement(target[x],gameboard,unit,args))
+        
         playerUnit = gameboard[unit]
-        del gameboard[unit]
-        distance = 0
-        lastOpenSpace = unit
+        distance = 0        
         # execute number of movements
         for x in target:
-            if x not in gameboard:
+            if x not in gameboard or x == unit:
                 lastOpenSpace = x
                 distance = distance + 1  
                         
@@ -242,10 +285,19 @@ class Movement(Ability):
                 gameboard[unit].attributeManager.changeAttributes(args['Cost'],-distance)
         else:            
             gameboard[unit].attributeManager.changeAttributes('Movement',-distance)
+        
+        for x in range(0,len(target)+1):        
+            if x <= distance:
+                gameboard = gameboard[unit].movementEffects(unit,target[x],gameboard)
+                if type(gameboard[target[x]]).__name__ == 'StealthToken':
+                    gameboard[target[x]].stealthTokenEffect(unit,gameboard)
+                    del gameboard[target[x]]
+                gameboard[target[x]].direction = random.choice(self.directions)
+                gameboard[target[x]].location = x
+                gameboard[target[x]].getLineOfSight(gameboard)
+            unit = target[x]
         gameboard[lastOpenSpace] = playerUnit
-        gameboard[lastOpenSpace].direction = random.choice(self.directions)
-        gameboard[lastOpenSpace].location = lastOpenSpace
-        gameboard[lastOpenSpace].getLineOfSight(gameboard)
+        
         return gameboard,lastOpenSpace
 
 class Reorient(Ability):
@@ -311,8 +363,13 @@ class RedirectedStrike(Ability):
 class Pass(Ability):
     
     name = 'Pass'
-    def abilityEffect(self,unit,target,gameboard):
-        return gameboard
+    cost = {'Turn':['Passive'],'Reaction':['Passive']}
+    def abilityEffect(self,unit,target,gameboard,*args):
+        if args:
+            combatSteps = args[0] 
+            return gameboard,combatSteps
+        else:
+            return gameboard
 
 class LevelManager:
     def __init__(self,level,unitClass,unitType):
@@ -506,12 +563,20 @@ class AttributeManager(GeneralUse):
             self.currentAttributes[attribute] = self.currentAttributes[attribute] + value
 
     def setAttributes(self,attribute,value):
-        self.currentAttributes[attribute] = value
-        
+        self.currentAttributes[attribute] = value + self.bonusAttributes[attribute]
+    
+    # bonus attributes set at the end of your turn
+    def setBonusAttributes(self,attribute,value):
+        self.bonusAttributes[attribute] = self.bonusAttributes[attribute] + value
+
 class Unit(GeneralUse):
     
     reactionManager = ReactionManager()
     lineOfSightManager = LOS.LineOfSight()
+    bonusAttributes = {'Attack':0,'Movement':0,'Reaction':0,'Special':0}
+    eliminatedUnits = {'Elite':0, 'Common':0, 'Objective':0}
+    permBonusAttr = {'Health':0,'Attack':0,'Movement':0,'Special':0,'Reaction':0,'Damage':0,'Evasion':0,'Hit':0,'Armor':0}
+    unitRange = 1
     
     def __init__(self,unitType,unitName):
         self.unitType = unitType
@@ -527,7 +592,12 @@ class Unit(GeneralUse):
         self.captureCost = captureCost
         self.abilities = {'Attack':Attack(self.unitName,playerID), 'Movement':Movement(self.unitName,playerID), 'Reorient':Reorient(self.unitName,playerID), 'Perception':Perception(self.unitName,playerID),
                  'AccurateStrike': AccurateStrike(self.unitName,playerID),'Avoid':Avoid(self.unitName,playerID),'PurposefulDodge':PurposefulDodge(self.unitName,playerID),'RedirectedStrike':RedirectedStrike(self.unitName,playerID)}
-        
+    
+    def addBonuses(self):
+        for x in self.permBonusAttr:
+            self.attributeManager.changeAttributes(x,self.permBonusAttr[x])
+        self.Range = self.Range + self.rangeBonus
+    
     def createOptions(self):
         # match ability costs to available points
         # excludes passives since it matches available points to cost
@@ -552,6 +622,32 @@ class Unit(GeneralUse):
     
     def createCombatModifiers(self,*args):
         return args
+    
+    def changeLocation(self,location):
+        self.location = location
+        return
+    
+    def passiveMods(self,unit,target,gameboard,combatSteps):
+        return gameboard,combatSteps
+    
+    def movementEffects(self,unit,target,gameboard):
+        return gameboard
+    
+    def addMovementSpaces(self,unit,gameboard,spaces):
+        return spaces
+    
+    def eliminateUnit(self,unit,playerID):
+        if self.playerID != playerID:
+            self.eliminatedUnits[unit] = self.eliminatedUnits[unit] + 1
+        
+    def classUpgrades(self,unit):
+        return 
+    
+    def changePermanentUpgrade(self,attribute,value):
+        self.permBonusAttr[attribute] = self.permBonusAttr[attribute] + value
+        
+    def statEffect(self,unitObj):
+        return unitObj
     
 class Player(GeneralUse):
     
@@ -582,23 +678,29 @@ class Player(GeneralUse):
                 self.units[unit].unitOptions = self.units[unit].createOptions()
             unitChoice = unitChoices.get(random.choice(list(unitChoices.keys())))
             if unitChoice == 'Pass':
+                for x in self.units:
+                    for attr in ['Attack','Movement','Reaction','Special']:
+                        gameboard[x].attributeManager.setBonusAttributes[attr,0]
                 break
             # execute ability
             if unitChoice.unitOptions:
                 unitChoice.abilities.get(random.choice(unitChoice.unitOptions)).execute(unit,gameboard)
             for unit in gameboard:
-                if type(unit).__name__ == 'Unit' and unit.playerID == self.playerID:
-                    if unit.attributeManager.getAttributes('Health') <= 0:
-                        self.updateUnits(unit)
+                if type(gameboard[unit]).__name__ == 'Unit': 
+                    if gameboard[unit].playerID == self.playerID:
+                        self.updateUnits(gameboard[unit])
+                        self.classUpgrades(gameboard[unit])
+                        gameboard[unit] = self.units[gameboard[unit].unitName]
+                    if gameboard[unit].attributeManager.getAttributes('Health') <= 0:
                         del gameboard[unit]
-            # then pick an option
+        
         return gameboard
     
     def updateUnits(self,unit):
         self.units[unit.unitName] = unit
     
     def respawnUnits(self,gameboard):
-        
+        # finds units not in gameboard but in player unit list
         respawnPoints = [b for c in [gameboard[a].adjacentSpaces() for a in [x for x in gameboard if type(gameboard[x]).__name__ == 'Respawn' and gameboard[x].playerID == self.playerID]] for b in c]
         units = list(set(self.units.keys()).difference(set([gameboard[x] for x in gameboard if gameboard[x].playerID == self.playerID])))
         for x in units:
@@ -612,6 +714,7 @@ class Player(GeneralUse):
         gameboard[location] = unit
         gameboard[location].location = location
         gameboard[location].lineOfSight = gameboard[location].getLineOfSight(gameboard)
+        gameboard[location].addBonuses()
         return gameboard
     
     def gainExp(self):
@@ -619,6 +722,8 @@ class Player(GeneralUse):
     
     def manageExp(self):
         # handle leveling and returning abilities
+        for unit in self.units:
+            self.experiencePoints = self.units[unit].eliminatedUnits['Elite'] + self.units[unit].eliminatedUnits['Common'] + self.units[unit].eliminatedUnits['Objective']
         
         if self.experiencePoints != 0 and self.level < 6:
             self.victoryPoints = self.victoryPoints + 1
@@ -651,7 +756,6 @@ class Player(GeneralUse):
     def availableAbilities(self):
         return
     
-    
 class Objective(GeneralUse):
     
     playerID = 'None'
@@ -674,6 +778,12 @@ class Respawn(GeneralUse):
     def __init__(self,location,player):
         self.location = location
         self.playerID = player
+
+class Obstacle(GeneralUse):
+    armor = 2
+    
+    def getArmor(self):
+        return self.armor
 
 class Game:
     turnCounter = 0
@@ -698,7 +808,6 @@ class Game:
             if self.turnCounter == 10:
                 print('end')
                 break
-                
                 
     def endRound(self):
         for player in self.players:
