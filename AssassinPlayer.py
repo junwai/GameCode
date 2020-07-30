@@ -21,6 +21,23 @@ class AssassinAvoid(Ability):
         gameboard[unit].abilities.get('Movement').execute(unit,target,gameboard,move)
         return gameboard       
     
+class AssassinAttack(Ability):
+    name = 'Attack'
+    cost = {'Turn':['Attack']}
+    
+    def abilityEffect(self,unit,target,gameboard):
+        gameboard[unit].changeAttributes('Attack',-1)
+        return self.combat(unit,target,gameboard,gameboard[unit].createCombatModifiers({'unit':unit,'target':target,'gameboard':gameboard})) 
+        
+    def getTargets(self,unit,gameboard,*args):
+        if 'PsychicScream' in gameboard[unit].abilities:
+            if gameboard[unit].abilities[PsychicScream].active:
+                spaces = self.getAOETargets(1,unit)
+        else:
+            spaces = list(set(self.getLOSTargets(unit,gameboard,args)).intersection(set(self.getAOETargets(gameboard[unit].unitRange,gameboard[unit].location))))
+    
+        return spaces    
+    
 class AssassinUnit(Unit):
 
     def setClass(self,playerClass,playerID,captureCost):
@@ -111,10 +128,16 @@ class AssassinUnit(Unit):
                 if blocked:
                     combatSteps['AddHit'] = combatSteps['AddHit'] + 3
                     combatSteps['AddDamage'] = combatSteps['AddDamage'] + 3
-                    
+            if 'Eviscerate' in self.abilities:
+                combatSteps['AddDamage'] = combatSteps['AddDamage'] + len([x for x in self.adjacentSpaces() if type(gameboard[x]).__name__ == 'StealthToken' and gameboard[x].playerID == self.playerID])
+            if 'Portent' in self.abilities:
+                if self.abilities['Portent'].active:
+                    combatSteps['CalcEvasion'] = 2
+                    self.abilities['Portent'].active = False
+            
         if self.location == target:
             if 'Meld' in self.abilities:
-                mod['AddEvasion'] = mods['AddEvasion'] + len([x for x in self.adjacentSpaces(self.location) if type(gameboard[x]).__name__ == 'StealthToken'])
+                mod['AddEvasion'] = mods['AddEvasion'] + len([x for x in self.adjacentSpaces() if type(gameboard[x]).__name__ == 'StealthToken'])
             if 'Wounding' in combatSteps['AttackMods']:
                 if 'Blur' in self.abilities:
                     combatSteps['AttackMods'].remove('Wounding')
@@ -127,7 +150,11 @@ class AssassinUnit(Unit):
                 disadv = random.randint(1,6)
                 if combatSteps['CalcEvasion'] > disadv:
                     combatSteps['CalcEvasion'] = disadv            
-                
+            if 'Portent' in self.abilities:
+                if self.abilities['Portent'].active:
+                    combatSteps['CalcHit'] = 2
+                    self.abilities['Portent'].active = False
+                    
         return gameboard,combatSteps
     
     def movementEffects(self,unit,target,gameboard):
@@ -170,8 +197,25 @@ class AssassinPlayer(Player):
                     for houseAbility in self.houses[house].abilities[self.houseRank[house]]:
                         self.units[x].abilities[houseAbility] = self.houses[house].abilities[self.houseRank[house]][houseAbility]
                         self.units[x] = self.units[x].abilities[houseAbility].statEffect(units[x])
+        if 'Flock' in self.units[unit.unitName].abilities:
+            self.units[unit.unitName].captureCost = 'Movement'
         
-        
+    def beginningTurnEffects(self,gameboard):
+        tokens = [x for x in gameboard if type(gameboard[x]).__name__ == 'StealthToken' and self.playerID == gameboard[x].playerID]
+        if 'Camouflage' in self.abilities:
+            if random.choice(['Pass','Camouflage']) == 'Camouflage':
+                elite = [x for x in gameboard[x].unitType == 'Elite' and gameboard[x].playerID == self.playerID]
+                self.abilities['Camouflage'].abilityEffect(elite[0],gameboard)
+        if 'CloakAndDagger' in self.abilities:
+            for x in random.sample(tokens,3):
+                tokens.remove(x)
+        if 'Infiltrate' in self.abilities:
+            for x in range(0,3):
+                self.abilities['Movement'].abilityEffect(self.location,[],gameboard,{'Distance':3,'Passive':'Passive'})
+        for x in tokens:
+            del gameboard[x]
+        return gameboard
+    
     def tier1():
         return {'Quickstep':QuickStep(),'KidneyShot':KidneyShot(),'Backstab':Backstab(),'Shift':Shift(),'Rope':Rope(),\
                 'Sabotage':Sabotage(),'HeightenedSenses':HeightenedSenses(),'Undercover':Undercover(),\
@@ -547,10 +591,9 @@ class AssassinPlayer(Player):
                     
     class Camouflage:
         name = 'Camouflage'
-        cost = {'Reaction':'Passive'}
-        state = ['TurnStart']
+        cost = {'Passive':'Passive'}
         
-        def abilityEffect(self,unit,target,gameboard):
+        def abilityEffect(self,unit,gameboard):
             spaces = [x for x in gameboard[unit].adjacentSpaces() if x not in gameboard]
             for x in spaces:
                 gameboard[x] = StealthToken()
@@ -601,45 +644,39 @@ class AssassinPlayer(Player):
     class CloakAndDagger:
         name = 'CloakAndDagger'
         cost = {'Passive':'Passive'}
-        
-        def abilityEffect(self,unit,target,gameboard):
-        
+                
     class Infiltrate:
         name = 'Infiltrate'
-        cost = ['Passive']
-        
-        def abilityEffect(self,unit,target,gameboard):
-        
+        cost = {'Passive':'Passive'}
+                
     class Misdirection:
         name = 'Misdirection'
-        cost = ['Passive']
-        
-        def abilityEffect(self,unit,target,gameboard):
-        
+        cost = {'Passive':'Passive'}
+                
     class Stalk:
         name = 'Stalk'
-        cost = ['Passive']
-        
-        def abilityEffect(self,unit,target,gameboard):
-            
+        cost = {'Passive':'Passive'}
+                    
     class Smokescreen:
         name = 'Smokescreen'
-        cost = ['Special']
+        cost = {'Turn':'Special'}
         
-        def abilityEffect(self,unit,target,gameboard):
+        def getTargets(self,unit,gameboard):
+            self.getAOETargets(3,gameboard[unit].location)
             
+        def abilityEffect(self,unit,target,gameboard):
+            spaces = [x for x in self.adjacentSpaces(target) if x not in gameboard]
+            for x in spaces:
+                gameboard[x] = StealthToken(gameboard[unit].playerID,gameboard[unit].location)
+                    
     class Eviscerate:
         name = 'Eviscerate'
-        cost = ['Passive']
-        
-        def abilityEffect(self,unit,target,gameboard):
-            
+        cost = {'Passive':'Passive'}
+                    
     class Sneak:
         name = 'Sneak'
-        cost = ['Passive']
-        
-        def abilityEffect(self,unit,target,gameboard):
-        
+        cost = {'Passive':'Passive'}
+                
     class Esper(House):
         name = 'Esper'
         
@@ -652,51 +689,91 @@ class AssassinPlayer(Player):
         
     class Levitation:
         name = 'Levitation'
-        cost = ['Special']
+        cost = {'Turn':'Special'}
         
         def abilityEffect(self,unit,target,gameboard):
+            gameboard[unit].unrestrainedMovement = True
+            gameboard[unit].attributeManager.changeAttribute('Evasion',2)
+            gameboard[unit].attributeManager.changeAttribute('Movement',2)
+            return gameboard
             
     class TimeDilation:
         name = 'TimeDilation'
-        cost = ['Passive']
-        
-        def abilityEffect(self,unit,target,gameboard):
-            
+        cost = {'Passive':'Passive'}
+                    
     class Portent:
         name = 'Portent'
-        cost = ['Special']
+        cost = {'Turn':'Special'}
+        active = False
         
         def abilityEffect(self,unit,target,gameboard):
-            
+            self.active = True
+            return gameboard
+        
     class PsychicScream:
         name = 'PsychicScream'
-        cost = ['Special']
+        cost = {'Turn':'Special'}
+        active = False
         
         def abilityEffect(self,unit,target,gameboard):
-            
+            self.active = True
+            return gameboard
+        
     class Kineblade:
         name = 'Kineblade'
-        cost = ['Special']
+        cost = {'Turn':'Special'}
+        
+        def getTargets(self,unit,gameboard):
+            return [x for x in gameboard[unit].adjacentSpaces() if x not in gameboard]
         
         def abilityEffect(self,unit,target,gameboard):
+            gameboard[target] = SpotterUnit(gameboard[unit].playerID)            
             
+    class KinebladeUnit(Unit):
+        name = 'KinebladUnit'
+
+        def __init__(self,playerID):
+            self.playerID = playerID        
+
     class Barrier:
         name = 'Barrier'
-        cost = ['Reaction']
+        cost = {'Reaction':'Reaction'}
+        state = ['AddEvasion']
         
-        def abilityEffect(self,unit,target,gameboard):
+        def abilityEffect(self,unit,target,gameboard,combatSteps):
+            combatSteps['Armor'] = combatSteps['Armor'] + 3
+            combatSteps['Evasion'] = combatSteps['Evasion'] + 1
+            return gameboard, combatSteps
             
     class Crumple:
         name = 'Crumple'
-        cost = ['Special']
+        cost = {'Turn':'Special'}
+        
+        def getTargets(self,unit,gameboard):
+            return self.getLOSTargets(unit,gameboard,{'Range':3})
         
         def abilityEffect(self,unit,target,gameboard):
+            mods = gameboard[unit].createCombatModifiers({'unit':unit,'target':target,'gameboard':gameboard})
+            mods['Wounding'] = True
+            mods['Piercing'] = True
+            gameboard[unit].changeAttributes('Attack',-1)
+            return self.combat(unit,target,gameboard,mods)               
             
     class Savant(Unit):
         name = 'Savant'
-        cost = ['Special']
+        cost = {'Turn':'Special'}
+        
+        def getTargets(self,unit,gameboard):
+            return [x for x in gameboard[unit].adjacentSpaces() if x not in gameboard]
         
         def abilityEffect(self,unit,target,gameboard):
+            gameboard[target] = SpotterUnit(gameboard[unit].playerID)
+            
+    class SavantUnit(Unit):
+        name = 'SavantUnit'
+        
+        def __init__(self,playerID):
+            self.playerID = playerID
             
     class Accipiter(House):
         
@@ -704,54 +781,82 @@ class AssassinPlayer(Player):
         abilities = {
                 1:['Airborne','Disengage'],
                 2:['Lift','Rush'],
-                3:['RendingStrike','Flurry']
+                3:['RendingStrike','Flurry'],
                 4:['ConcussiveJump','Flock']
             }
         
     class Airborne:
         name = 'Airborne'
-        cost = ['Passive']
-        
-        def abilityEffect(self,unit,target,gameboard):
-            
+        cost = {'Passive':'Passive'}
+                    
     class Disengage:
         name = 'Disengage'
-        cost = ['Reaction']
+        cost = {'Reaction':'Reaction'}
+        state = ['AfterAttack']
         
         def abilityEffect(self,unit,target,gameboard):
-            
+            gameboard[unit].attributeManager.changeAttributes('Movement',3)
+            gameboard[unit].abilities['Movement'].abilityEffect(unit,target,gameboard,{Distance:3})
+            return gameboard
+        
     class Lift:
         name = 'Lift'
-        cost = ['Special','Movement']
+        cost = {'Turn':['Special','Movement']}
         
         def abilityEffect(self,unit,target,gameboard):
-            
+            space = random.choice([x for x in self.getAOETargets(6,unit) if x not in gameboard])
+            gameboard[space] = gameboard[unit]
+            del gameboard[unit]
+            return gameboard
+           
     class Rush:
         name = 'Rush'
-        cost = ['Movement','Attack']
+        cost = {'Turn':['Movement','Attack']}
+        
+        def getTargets(self,unit,gameboard):
+            return []
         
         def abilityEffect(self,unit,target,gameboard):
-    
+            gameboard[unit].attributeManager.changeAttributes('Movement',3)
+            gameboard[unit].abilities['Movement'].abilityEffect(unit,target,gameboard,{Distance:3})            
+            return gameboard[unit].abilities['Attack'].execute(unit,gameboard)
+            
     class RendingStrike:
         name = 'RendingStrike'
-        cost = ['Movement']
+        cost = {'Reaction':['Movement']}
+        state = ['AddHit']
         # add piercing and swift to an attack
-        def abilityEffect
+        def abilityEffect(self,unit,target,gameboard,combatSteps):
+            combatSteps['AttackMods']['Piercing'] = True
+            combatSteps['AttackMods']['Swift'] = True
+            return gameboard, combatSteps
         
     class Flurry:
         name = 'Flurry'
-        cost = ['Attack']
+        cost = {'Turn':['Attack']}
         
         def abilityEffect(self,unit,target,gameboard):
+            gameboard[unit].attributeManager.changeAttributes('Attack',1)            
+            gameboard[unit].abilities['Attack'].execute(unit,gameboard)
+            gameboard[unit].abilities['Attack'].execute(unit,gameboard)
             
     class ConcussiveJump:
         name = 'ConcussiveJump'
-        cost = ['Special','Movement']
+        cost = {'Turn':['Special','Movement']}
         
         def abilityEffect(self,unit,target,gameboard):
-            
+            targets = [x for x in self.getAOETargets(1,unit) if x not in gameboard]
+            for x in targets:
+                gameboard = self.combat(unit,x,gameboard,{'Wounding':True})
+            space = random.choice([x for x in self.getAOETargets(4,unit) if x not in gameboard])
+            gameboard[space] = gameboard[unit]
+            del gameboard[unit]
+            targets = [x for x in self.getAOETargets(1,space) if x not in gameboard]
+            for x in targets:
+                gameboard = self.combat(unit,x,gameboard,{'Wounding':True})
+            return gameboard
+        
     class Flock:
         name = 'Flock'
-        cost = ['Passive']
-        
-        def abilityEffect(self,unit,target,gameboard):
+        cost = {'Passive':'Passive'}
+                
