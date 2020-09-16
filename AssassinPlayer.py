@@ -154,7 +154,11 @@ class AssassinUnit(Unit):
                 if self.abilities['Portent'].active:
                     combatSteps['CalcHit'] = 2
                     self.abilities['Portent'].active = False
-                    
+            if [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]:
+                elites = [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]
+                for x in elites:
+                    if gameboard[x].getDistance(target) <= gameboard[x].attunement['Water']:
+                        combatSteps['AddEvasion'] = combatSteps['AddEvasion'] - 2        
         return gameboard,combatSteps
     
     def movementEffects(self,unit,target,gameboard):
@@ -216,6 +220,21 @@ class AssassinPlayer(Player):
             del gameboard[x]
         return gameboard
     
+    def endTurnEffects(self,gameboard):
+        if [x for x in gameboard if 'Tectonics' in gameboard[x].abilities]:
+            unit = [x for x in gameboard if 'Tectonics' in gameboard[x].abilities]
+            for x in gameboard[unit].abilities['Tectonics'].locations:
+                if x in gameboard:
+                    if gameboard[x].moveable:
+                        gameboard = self.forcedMovement(self.attunements['Earth']+5, gameboard[x].direction, [], x, gameboard)
+    
+    
+    def generateMovementEffect(self,*ability):
+        effects = {}
+        if 'Airborne' in self.abilities:
+            effects['Unrestrained'] = True
+        return effects
+            
     def tier1():
         return {'Quickstep':QuickStep(),'KidneyShot':KidneyShot(),'Backstab':Backstab(),'Shift':Shift(),'Rope':Rope(),\
                 'Sabotage':Sabotage(),'HeightenedSenses':HeightenedSenses(),'Undercover':Undercover(),\
@@ -451,9 +470,10 @@ class AssassinPlayer(Player):
         cost = {'Reaction':'Reaction'}
         state = ['TakeDamage']
         
-        def abilityEffect(self,unit,target,gameboard,combatSteps):
-            if combatSteps['ResultingDamage'] >= 4:
+        def abilityEffect(self,unit,target,gameboard,damage):
+            if damage >= 4:
                 self.attributeManager.setBonusAttributes('Attack',1)
+            return gameboard, damage
             
     class Reaper(Ability):
         name = 'Reaper'
