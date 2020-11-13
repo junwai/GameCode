@@ -49,6 +49,81 @@ class GeneralUse:
         } 
         return switchDir[direction][num]
     
+    def attackDirection(self,unit,target):
+        # returns the direction the attack is coming from
+        
+        xu = unit[0]
+        yu = unit[1]
+        xt = target[0]
+        yt = target[1]
+        
+        if xu == xt and yu < yt:
+            return 'n'
+        elif xu < xt and yu < yt:
+            return 'ne'
+        elif xu < xt and yu == yt:
+            return 'se'
+        elif xu == xt and yu > yt:
+            return 's'
+        elif xu > xt and yu > yt:
+            return 'sw'
+        elif xu > xt and yu < yt:
+            return 'nw'
+        
+    def directionAdjacentSpaces(self,direction,space):
+        x = space[0]
+        y = space[1]
+        switch = {
+            'n': {1:(x,y+1),2:(x+1,y+1),3:(x+1,y),4:(x,y-1),5:(x-1,y-1),6:(x-1,y)},
+            'ne': {1:(x+1,y+1),2:(x+1,y),3:(x,y-1),4:(x-1,y-1),5:(x-1,y),6:(x,y+1)},
+            'se': {1:(x-1,y-1),2:(x-1,y),3:(x,y+1),4:(x+1,y+1),5:(x+1,y),6:(x,y-1)},
+            's': {1:(x,y-1),2:(x-1,y-1),3:(x-1,y),4:(x,y+1),5:(x+1,y+1),6:(x+1,y)},
+            'sw': {1:(x+1,y),2:(x,y-1),3:(x-1,y-1),4:(x-1,y),5:(x,y+1),6:(x+1,y+1)},
+            'nw': {1:(x-1,y),2:(x,y+1),3:(x+1,y+1),4:(x+1,y),5:(x,y-1),6:(x-1,y-1)}
+        }
+        return switch[direction]
+    
+    # need to review accuracy of spaces and directions
+    def numberSpaceAdjacentSpaces(self,direction,space):
+        x = space[0]
+        y = space[1]
+        switch = {
+            'n': {(x,y+1):1,(x+1,y+1):2,(x+1,y):3,(x,y-1):4,(x-1,y-1):5,(x-1,y):6},
+            'ne': {(x+1,y+1):1,(x+1,y):2,(x,y-1):3,(x-1,y-1):4,(x-1,y):5,(x,y+1):6},
+            'se': {(x-1,y-1):1,(x-1,y):2,(x,y+1):3,(x+1,y+1):4,(x+1,y):5,(x,y-1):6},
+            's': {(x,y-1):1,(x-1,y-1):2,(x-1,y):3,(x,y+1):4,(x+1,y+1):5,(x+1,y):6},
+            'sw': {(x+1,y):1,(x,y-1):2,(x-1,y-1):3,(x-1,y):4,(x,y+1):5,(x+1,y+1):6},
+            'nw': {(x-1,y):1,(x,y+1):2,(x+1,y+1):3,(x+1,y):4,(x,y-1):5,(x-1,y-1):6}
+        }
+        return switch[direction]
+    
+    def directionSpaces(self,direction,unit):
+        x = unit[0]
+        y = unit[1]
+        switch = {
+            'n': (x,y+1),
+            'ne': (x-1,y+1),
+            'se': (x-1,y),
+            's': (x,y-1),
+            'sw': (x+1,y),
+            'nw': (x-1,y)
+        }
+        return switch[direction]
+        
+    def targetDirectionUnitAttack(self,targetDirection):
+        # when target is facing a direction and given unit direction of attack, what # space is it from 
+        # target perspective?
+        # example: target facing north, attack coming from south (attack facing north) = # 4 space (from behind)
+        switch = {
+            'n': {'n': 4, 'ne': 5, 'se': 6, 's': 1, 'sw': 2, 'nw': 3},
+            'ne': {'n': 3, 'ne': 4, 'se': 5, 's': 6, 'sw': 1, 'nw': 2},
+            'se': {'n': 2, 'ne': 3, 'se': 4, 's': 5, 'sw': 6, 'nw': 1},
+            's': {'n': 1, 'ne': 2, 'se': 3, 's': 4, 'sw': 5, 'nw': 6},
+            'sw': {'n': 6, 'ne': 1, 'se': 2, 's': 3, 'sw': 4, 'nw': 5},
+            'nw': {'n': 5, 'ne': 6, 'se': 1, 's': 2, 'sw': 3, 'nw': 4},
+        }
+        return switch[targetDirection]
+    
     def adjacentSpacesDir(self,*args):
         #[1,2,3,4,5,6]
         if 'Location' not in args[0]:
@@ -70,6 +145,20 @@ class GeneralUse:
             return switch.get(self.direction)
         else:
             return switch.get(args[0]['Direction'])
+    
+    def spacesToDir(self,unit,target):
+        # start with unit, move to target, give direction
+        x = unit[0]
+        y = unit[1]
+        moveSwitch = {
+            (x,y+1):'n',
+            (x+1,y+1):'ne',
+            (x+1,y):'se',
+            (x,y-1):'s',
+            (x-1,y-1):'sw',
+            (x-1,y):'nw'
+        }
+        return moveSwitch.get(target)
     
     def oppositeSpacesDir(self,unit,target):
         x_t = target[0]
@@ -99,9 +188,23 @@ class GeneralUse:
         if 'AetherPulse' in args and damage > 0:
             gameboard[unit].abilities['AetherPulse'].recoverHealth(unit,gameboard)
         
+        if 'Aegis' in gameboard[target].abilities:
+            targetfacing = self.targetDirectionUnitAttack(gameboard[target].direction)
+            if targetfacing[self.attackDirection(unit,target)] in [6,1,2]:
+                damage = 0
+        
+        if 'Sunder' in gameboard[unit].abilities:
+            multiplier = random.choice([x for x in range(0,gameboard[unit].attributeManager.getAttributes('Attack'))+1])
+            if multiplier > 0:
+                damage = damage * (multiplier+1)
+                
+        if 'Barter' in gameboard[target].abilities:
+            for x in range(0,damage):
+                gameboard[target].abilities['Attack'].abilityEffect(target,unit,gameboard)  
+                
         gameboard[target].attributeManager.changeAttributes('Health',-damage)
         if gameboard[target].attributeManager.getAttributes('Health') <= 0:
-            gameboard[unit].eliminateUnit(gameboard[target].unitType,gameboard[target].playerID)
+            gameboard[unit].eliminateUnit(gameboard[target].unitType,gameboard[target].playerID,gameboard)
 
             reaction = gameboard[unit].checkReaction(unit,target,gameboard,['EliminateUnit'])            
             gameboard = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard)
@@ -203,7 +306,16 @@ class GeneralUse:
             self.forcedMovement(blockedSpaces,direction,unit,target,gameboard)
             
         return gameboard
-    
+
+    def getAOETargets(self, unitRange, unitLocation):
+        
+        for i in range(0,unitRange):
+            spaces = list(set([a for b in [self.adjacentSpaces(x) for x in self.adjacentSpaces(unitLocation)] for a in b]))
+        # if x and y are changing in different directions (+/-) it is 2 spaces
+        # if x and y are changing in the same direction (+/+) it is 1 space
+        # if only x or y are changing it is 1 space
+        return spaces
+ 
 class StealthToken(GeneralUse):
     
     # this is the token object
@@ -229,6 +341,9 @@ class Ability(GeneralUse):
         self.unitName = unitName
         self.playerID = playerID
     
+    def initAbility(self, gameboard):
+        return gameboard
+    
     def getTargets(self,unit,gameboard):
         return unit
     
@@ -247,15 +362,6 @@ class Ability(GeneralUse):
         spaces = gameboard[unit].adjacentSpacesDir()
         return [spaces[6],spaces[1],spaces[2]]
     
-    def getAOETargets(self, unitRange, unitLocation):
-        
-        for i in range(0,unitRange):
-            spaces = list(set([a for b in [self.adjacentSpaces(x) for x in self.adjacentSpaces(unitLocation)] for a in b]))
-        # if x and y are changing in different directions (+/-) it is 2 spaces
-        # if x and y are changing in the same direction (+/+) it is 1 space
-        # if only x or y are changing it is 1 space
-        return spaces
-    
     def adjacentSpaces(location):
         (x,y) = location
         return [(x,y+1),(x+1,y+1),(x+1,y),(x,y-1),(x-1,y-1),(x-1,y)]
@@ -269,6 +375,8 @@ class Ability(GeneralUse):
         return gameboard
 
     def combat(self,unit,target,gameboard,mods):
+        gameboard[unit].setLastAction('Combat')
+        
         combatSteps = {
                 'CalcHit': random.randint(1,6),
                 'AddHit': gameboard[unit].attributeManager.getAttributes('Hit'),
@@ -284,9 +392,6 @@ class Ability(GeneralUse):
                 'newPosition': False,
                 'AttackMods': mods
         }
-        
-        gameboard, combatSteps = gameboard[unit].rollModifiers(unit,target,gameboard,combatSteps)
-        gameboard, combatSteps = gameboard[target].rollModifiers(unit,target,gameboard,combatSteps)
         
         for x in mods: 
             if x in combatSteps:
@@ -306,7 +411,11 @@ class Ability(GeneralUse):
         if 'UAVTower' in gameboard[unit].abilities:
             if [x for x in gameboard[unit].abilities['UAVTower'].getAOETargets(gameboard[unit].abilities['UAVTower']._range,unit) if type(gameboard[x]).__name__ == 'UAVTower']:
                 combatSteps['AddHit'] = combatSteps['AddHit'] + 2           
-
+        
+        # target reaction from melee
+        if self.getDistance(unit,target) == 1:
+            reaction = gameboard[unit].checkReaction(unit,target,gameboard,['TargetedMelee'])
+            gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
         
         # add additional hit modifiers
         reaction = gameboard[unit].checkReaction(unit,target,gameboard,['AddHit'])
@@ -337,17 +446,22 @@ class Ability(GeneralUse):
             
         if combatSteps['HitResults'] > combatSteps['EvasionResults']:
             combatSteps['CombatResult'] = 'Hit'
+
+
             
-        if 'Piercing' in mods:
+        if 'Piercing' in combatSteps['AttackMods']:
+            if gameboard[target].unitClass == 'Engineer':
+                if 'Tank' in gameboard[target].unitBlueprints or 'Dreadnought' in gameboard[target].unitBlueprints:
+                    del combatSteps['AttackMods']['Piercing']
             combatSteps['Armor'] = 0
 
         if combatSteps['CombatResult'] == 'Evasion':
             if combatSteps['EvasionResult'] >= combatSteps['HitResult'] + 3:
                 reaction = gameboard[target].checkReaction(target,unit,gameboard,['GreaterEvasion'])
-                gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
+                gameboard, combatSteps = gameboard[target].abilities[reaction].abilityEffect(target,unit,gameboard,combatSteps)
             else:
                 reaction = gameboard[target].checkReaction(target,unit,gameboard,['Evasion','Any'])
-                gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)                
+                gameboard, combatSteps = gameboard[target].abilities[reaction].abilityEffect(target,unit,gameboard,combatSteps)                
             reaction = gameboard[unit].checkReaction(unit,target,gameboard,['MissedMeleeAttack','Any'])
             gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
 
@@ -415,7 +529,7 @@ class Attack(Ability):
     cost = {'Turn':['Attack']}
     
     def abilityEffect(self,unit,target,gameboard):
-        gameboard[unit].changeAttributes('Attack',-1)
+        gameboard[unit].attributeManager.changeAttributes('Attack',-1)
         return self.combat(unit,target,gameboard,gameboard[unit].createCombatModifiers({'unit':unit,'target':target,'gameboard':gameboard})) 
         
     def getTargets(self,unit,gameboard,*args):
@@ -425,6 +539,8 @@ class Movement(Ability):
     
     name = 'Movement'
     cost = {'Turn':['Movement']}
+    straightLineTraveled = 0
+    lastDirTraveled = None
     
     def availableMovement(self,unit,gameboard,origin,*effects):
         effects = effects[0]
@@ -437,12 +553,6 @@ class Movement(Ability):
         if set(spaces) & set(respawnSpaces):
             spaces = list(set(spaces + respawnSpaces))
             
-        relays = [x for x in gameboard if type(x).__name__ == 'Relay' and gameboard[x].playerID == gameboard[unit].playerID]
-        if gameboard[unit].playerClass == 'Engineer' and relays:
-            relaySpaces = [a for b in [gameboard[x].adjacentSpaces() for x in relays] for a in b if a not in gameboard]  
-            if set(spaces) & set(relaySpaces):
-                spaces = list(set(spaces + relaySpaces))
-            
         for x in spaces: 
             if x[0] < 0 or x[0] > 20 or x[1] < 0 or x[1] > 20:
                 spaces.remove[x]
@@ -452,6 +562,7 @@ class Movement(Ability):
     
     def abilityEffect(self,unit,target,gameboard,*args):
         # args is a manually input distance
+        gameboard[unit].setLastAction('Movement')
         args = args[0]
         effects = []
         if 'Ability' in args:
@@ -479,6 +590,13 @@ class Movement(Ability):
         reducedCost = 0
         # execute number of movements
         for x in target:
+            directionTraveled = self.spacesToDir(unit,target)
+            if directionTraveled == self.lastDirTraveled:
+                self.straightLineTraveled = self.straightLineTraveled + 1
+            else:
+                self.straightLineTraveled = 1
+            self.lastDirTraveled = directionTraveled
+                
             if x not in gameboard or x == unit:
                 lastOpenSpace = x
                 distance = distance + 1
@@ -581,7 +699,7 @@ class PurposefulDodge(Ability):
         if 'TimeDilation' in gameboard[target].abilities:
             spaces = 3
         gameboard[unit].attributeManager.changeAttributes('Movement',spaces)
-        gameboard, newpos = gameboard[unit].abilities.get('Movement').execute(unit,target,gameboard,spaces)
+        gameboard, newpos = gameboard[unit].abilities['Movement'].execute(unit,target,gameboard,spaces)
         if 'Jaunt' in gameboard[target].abilities:
             gameboard[unit] = StealthToken(gameboard[target].unitName,gameboard[target].playerID)
         return gameboard,newpos
@@ -819,12 +937,14 @@ class AttributeManager(GeneralUse):
 
 class Unit(GeneralUse):
     
+    built = False
     reactionManager = ReactionManager()
     lineOfSightManager = LOS.LineOfSight()
     eliminatedUnits = {'Elite':0, 'Common':0, 'Objective':0}
     unitRange = 1
     unrestrainedMovement = False
     moveable = True
+    aura = 'None'
     
     def __init__(self,unitType,unitName):
         self.unitType = unitType
@@ -885,10 +1005,17 @@ class Unit(GeneralUse):
     def addMovementSpaces(self,unit,gameboard,spaces):
         return spaces
     
-    def eliminateUnit(self,unit,playerID):
+    def eliminateUnit(self,unit,playerID,gameboard):
         if self.playerID != playerID:
             self.eliminatedUnits[unit] = self.eliminatedUnits[unit] + 1
-        
+            if 'WarriorAttack' in self.abilities:
+                if self.unitType == 'Elite':
+                    for x in [y for y in gameboard if gameboard[y].playerID == playerID]:
+                        if x.weaponUpgrades[self.weapon] < 3:
+                            x.weaponUpgrades[self.weapon] = x.weaponUpgrades[self.weapon] + 1
+                elif self.weaponUpgrades[self.weapon] < 3:
+                    self.weaponUpgrades[self.weapon] = self.weaponUpgrades[self.weapon] + 1
+                
     def classUpgrades(self,unit):
         return 
         
@@ -897,7 +1024,10 @@ class Unit(GeneralUse):
     
     def generateMovementEffect(self):
         return
-        
+    
+    def setLastAction(self,action):
+        self.lastAction = action
+    
 class Player(GeneralUse):
     
     abilities = []
@@ -926,6 +1056,13 @@ class Player(GeneralUse):
         while True:
             for unit in self.units:
                 self.units[unit].unitOptions = self.units[unit].createOptions()
+                if [x for x in self.getAOETargets(4,x) if x in gameboard and gameboard[x].name == 'EMPTower']:
+                    for x in self.units[unit].unitOptions:
+                        abil = self.units[unit].abilities[self.units[unit].unitOptions[x]]
+                        if 'Turn' in abil.cost:
+                            if abil.cost['Turn'] == 'Special':
+                                del self.units[unit].unitOptions[x]
+
             unitChoice = unitChoices.get(random.choice(list(unitChoices.keys())))
             if unitChoice == 'Pass':
                 for x in self.units:
@@ -1060,8 +1197,10 @@ class Respawn(GeneralUse):
         self.playerID = player
 
 class Obstacle(GeneralUse):
+    unitType = 'Obstacle'
     moveable = False
     armor = 2
+    aura = 'None'
     
     def getArmor(self):
         return self.armor

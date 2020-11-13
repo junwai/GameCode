@@ -559,7 +559,7 @@ class Fire:
                 elif x == self.location:
                     gameboard[x].attributeManager.currentAttributes['Health'] = gameboard[x].attributeManager.currentAttributes['Health'] - 5
                     
-    class Meteor:
+    class Meteor(Ability):
         name = 'Meteor'
         cost = {'Turn':'Special'}
         active = 0
@@ -579,7 +579,7 @@ class Fire:
                     self.combat(elite[0],gameboard[x],gameboard,{'Wounding':True,'Damage':12})
             return gameboard
     
-    class GammaBurst:
+    class GammaBurst(Ability):
         name = 'GammaBurst'
         cost = {'Turn':'Special'}
         
