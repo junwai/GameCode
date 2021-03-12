@@ -52,8 +52,6 @@ class Game:
         while True:
  
             root.fill(bg_color)
-            # draw_regular_polygon(root, fg_color, vertex_count,
-            #                      min(w, h) / 6, (w / 2, h / 2))
             pygame.draw.rect(root, white, button1)
             button_text = FONT.render('Round',True, black)
             button_rect = button_text.get_rect(center=(1140,250))
@@ -73,11 +71,9 @@ class Game:
                     if errorFlag:
                         print(self.gameboard[x])
                         errorFlag = False
-                        # stealth token is giving problems
                     my_group = pygame.sprite.Group(self.gameboard[x].boardImage)
                     my_group.draw(root)
             pygame.display.flip()
-
           
             done = False
             
@@ -90,7 +86,6 @@ class Game:
                                 done = True
                             # This block is executed once for each MOUSEBUTTONDOWN event.
                             elif event.type == pygame.MOUSEBUTTONDOWN:
-                                
                                 # 1 is the left mouse button, 2 is middle, 3 is right.
                                 if event.button == 1:
                                     # `event.pos` is the mouse position.
@@ -100,40 +95,41 @@ class Game:
                                         buttonpress = True
                         if buttonpress:
                             break
-                root.fill(bg_color)
-                # draw_regular_polygon(root, fg_color, vertex_count,
-                #                      min(w, h) / 6, (w / 2, h / 2))
-                    
-                for j in range(0,17):
-                    for i in range(1,16):
-                        if j%2 == 1:
-                            offset = sqrt(3)/2 *w/48
-                        else:
-                            offset = 0
-                        draw_regular_polygon(root, fg_color, 6, 22, (40 + 40*j, 720 - 720 / 16*i - offset))
-                        # if j == 4 and i == 5:
-                # units = 0
-                for x in self.gameboard:
-                    # units = units + 1
-                    if hasattr(self.gameboard[x],'boardImage'):
-                        # convert location to boardgame location
-                        errorFlag = self.gameboard[x].boardImage.update(x)
-                        if errorFlag:
-                            print(self.gameboard[x])
-                            errorFlag = False
-                            # stealth token is giving problems
-                        my_group = pygame.sprite.Group(self.gameboard[x].boardImage)
-                        my_group.draw(root)
                         
-                        # text_surf = FONT.render(str(self.gameboard[x].name), True, white)
-                        # # You can pass the center directly to the `get_rect` method.
-                        # text_rect = text_surf.get_rect(center=(800, 30*units))
-                        # root.blit(text_surf, text_rect)
-                pygame.draw.rect(root, white, button1)
-                button_text = FONT.render('Round',True, black)
-                button_rect = button_text.get_rect(center=(1140,250))
-                root.blit(button_text,button_rect)
-                pygame.display.flip()
+                    root.fill(bg_color)
+                    # draw_regular_polygon(root, fg_color, vertex_count,
+                    #                      min(w, h) / 6, (w / 2, h / 2))
+                        
+                    for j in range(0,17):
+                        for i in range(1,16):
+                            if j%2 == 1:
+                                offset = sqrt(3)/2 *w/48
+                            else:
+                                offset = 0
+                            draw_regular_polygon(root, fg_color, 6, 22, (40 + 40*j, 720 - 720 / 16*i - offset))
+                            # if j == 4 and i == 5:
+                    # units = 0
+                    for x in self.gameboard:
+                        # units = units + 1
+                        if hasattr(self.gameboard[x],'boardImage'):
+                            # convert location to boardgame location
+                            errorFlag = self.gameboard[x].boardImage.update(x)
+                            if errorFlag:
+                                print(self.gameboard[x])
+                                errorFlag = False
+                                # stealth token is giving problems
+                            my_group = pygame.sprite.Group(self.gameboard[x].boardImage)
+                            my_group.draw(root)
+                            
+                            # text_surf = FONT.render(str(self.gameboard[x].name), True, white)
+                            # # You can pass the center directly to the `get_rect` method.
+                            # text_rect = text_surf.get_rect(center=(800, 30*units))
+                            # root.blit(text_surf, text_rect)
+                    pygame.draw.rect(root, white, button1)
+                    button_text = FONT.render('Round',True, black)
+                    button_rect = button_text.get_rect(center=(1140,250))
+                    root.blit(button_text,button_rect)
+                    pygame.display.flip()
                     # if buttonpress:
                     #     break
                                 
