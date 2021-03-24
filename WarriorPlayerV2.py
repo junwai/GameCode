@@ -668,7 +668,7 @@ class WarriorUnit(gen.Unit):
                 combatSteps['AddDamage'] = combatSteps['AddDamage'] + 2
                 
         if 'Tranquility' in gameboard[unit].abilities:
-            if not [x for x in gameboard[unit].adjacentSpaces() if type(gameboard[unit]).__name__ == 'Unit']:
+            if not [x for x in gameboard[unit].adjacentSpaces() if gameboard[unit].name == 'Unit']:
                 combatSteps['AddDamage'] = combatSteps['AddDamage'] + 1
                 combatSteps['AddHit'] = combatSteps['AddHit'] + 3
                 

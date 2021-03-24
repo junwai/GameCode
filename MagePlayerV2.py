@@ -151,7 +151,7 @@ class MageUnit(gen.Unit):
     
     def movementEffects(self,unit,target,gameboard):
         if 'WindShear' in gameboard[unit].abilities:
-            if target in gameboard and gameboard[target].playerID != gameboard[unit].playerID and type(gameboard[target]).__name__ == 'Unit':
+            if target in gameboard and gameboard[target].playerID != gameboard[unit].playerID and gameboard[target].name == 'Unit':
                 damage = 2 - gameboard[target].attributeManager.getAttribute('Armor')
                 if damage > 0:
                     self.dealDamage(unit,target,gameboard,2)
@@ -321,7 +321,7 @@ class FlashFlood(gen.Ability):
     cost = {'Turn':'Attack'}
     
     def getTargets(self,unit,gameboard):
-        return [x for x in gameboard[unit].adjacentSpaces() if type(gameboard[x]).__name__ == 'Unit']
+        return [x for x in gameboard[unit].adjacentSpaces() if gameboard[x].name == 'Unit']
 
     def abilityEffect(self,unit,target,gameboard):
         commons = [x for x in gameboard if gameboard[x].unitType == 'Common' and gameboard[x].playerID == gameboard[unit].playerID]
@@ -558,7 +558,7 @@ class KineticImpulse(gen.Ability):
     cost = {'Turn':'Special'}
     
     def getTargets(self,unit,gameboard):
-        return [x for x in self.getMeleeTargets(unit,gameboard) if type(gameboard[x]).__name__ == 'Unit']
+        return [x for x in self.getMeleeTargets(unit,gameboard) if gameboard[x].name == 'Unit']
     
     def abilityEffect(self,unit,target,gameboard):
         gameboard = self.forcedMovement(1+gameboard[unit].attunements['Earth'],gameboard[unit].direction,target,gameboard)
@@ -975,7 +975,7 @@ class MagePlayer(gen.Player):
     
     def endTurnEffects(self,gameboard):
         if 'SearingAura' in self.abilities:
-            units = [x for x in gameboard if gameboard[x].playerID == self.playerID and type(gameboard[x]).__name__ == 'Unit']
+            units = [x for x in gameboard if gameboard[x].playerID == self.playerID and gameboard[x].name == 'Unit']
             targets = [x for y in [gameboard[z].getAOETargets(gameboard[z].attunements['Fire']) for z in units if gameboard[z].playerID != self.playerID] for x in y]
             for x in targets:
                 self.dealDamage(gameboard[random.choice(units)],x,gameboard,1)

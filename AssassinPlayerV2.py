@@ -207,7 +207,7 @@ class AssassinUnit(gen.Unit):
                     combatSteps['CalcHit'] = 0
                     combatSteps['AddHit'] = 7
             if 'Anonymity' in self.abilities:
-                spaces = len([x for x in gameboard[target].adjacentSpaces() if type(gameboard[x]).__name__ == 'Unit' and gameboard[x].playerID != gameboard[unit].playerID])
+                spaces = len([x for x in gameboard[target].adjacentSpaces() if gameboard[x].name == 'Unit' and gameboard[x].playerID != gameboard[unit].playerID])
                 combatSteps['AddEvasion'] = combatSteps['AddEvasion'] + spaces
             if [y for y in [x for x in self.adjacentSpaces(self.location) if x in gameboard] if 'Dyskinesia' in gameboard[y].abilities and gameboard[y].playerID != gameboard[unit].playerID]:
                 disadv = random.randint(1,6)
@@ -308,7 +308,7 @@ class Rope(gen.Ability):
         return self.LOSTargets(unit,gameboard,args)
     
     def getLOSTargets(self,unit,gameboard,*args):
-        spaces = [x for x in self.getAOETargets(3,unit) if type(gameboard[x]).__name__ == 'Unit']
+        spaces = [x for x in self.getAOETargets(3,unit) if gameboard[x].name == 'Unit']
         LOS = gameboard[unit].lineOfSight['Clear']+gameboard[unit].lineOfSight['Partial']
         potentialTargets = list(set(LOS).intersection(set(spaces)))
         return potentialTargets
@@ -567,7 +567,7 @@ class Plaguelord(gen.Ability):
         
     def execute(self,unit,gameboard,*args):
         potentialTargets = self.getTargets(unit,gameboard,args)
-        target = [x for x in potentialTargets if type(gameboard[x]).__name__ == 'Unit']
+        target = [x for x in potentialTargets if gameboard[x].name == 'Unit']
         gameboard = self.abilityEffect(unit,target,gameboard)
         gameboard[unit].reactionManager.setState('None')
         gameboard[target].reactionManager.setState('None')

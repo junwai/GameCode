@@ -78,6 +78,7 @@ class Game:
             done = False
             
             while not done:
+                # Update game board per player turn
                 for player in self.players:
                     buttonpress = False
                     while True:
@@ -120,15 +121,22 @@ class Game:
                                 # stealth token is giving problems
                             my_group = pygame.sprite.Group(self.gameboard[x].boardImage)
                             my_group.draw(root)
-                            
-                            # text_surf = FONT.render(str(self.gameboard[x].name), True, white)
-                            # # You can pass the center directly to the `get_rect` method.
-                            # text_rect = text_surf.get_rect(center=(800, 30*units))
-                            # root.blit(text_surf, text_rect)
+                    playerNameClass = FONT.render(player.playerClass + ' ' + player.playerID, True, white)
+                    playerNameRect = playerNameClass.get_rect(center=(900, 40))
+                    root.blit(playerNameClass,playerNameRect)
+                    for x in player.actionLog:
+                        text_surf = FONT.render(str(player.actionLog[x]), True, white)
+                        # You can pass the center directly to the `get_rect` method.
+                        text_rect = text_surf.get_rect(center=(900, 30*x + 80))
+                        root.blit(text_surf, text_rect)
                     pygame.draw.rect(root, white, button1)
                     button_text = FONT.render('Round',True, black)
                     button_rect = button_text.get_rect(center=(1140,250))
                     root.blit(button_text,button_rect)
+                    
+                    # works on making sure units do not respawn if already in board
+                    # figure out why engineer player isn't taking actions
+                    
                     pygame.display.flip()
                     # if buttonpress:
                     #     break

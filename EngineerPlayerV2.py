@@ -102,10 +102,10 @@ class EngineerMovement(gen.Movement):
                 
                 distance = distance + 1
             if 'Stalk' in gameboard[unit].abilities:
-                if [x for x in self.adjacentSpaces(x) if type(gameboard[x]).__name__ == 'Unit' and gameboard[x].playerID != gameboard[unit].playerID]:
+                if [x for x in self.adjacentSpaces(x) if gameboard[x].name == 'Unit' and gameboard[x].playerID != gameboard[unit].playerID]:
                     reducedCost = reducedCost = reducedCost + 1
             if 'Sneak' in gameboard[unit].abilities:
-                enemies = [x for x in gameboard if type(gameboard[x]).__name__ == 'Unit' and gameboard[x].playerID != gameboard[unit].playerID]
+                enemies = [x for x in gameboard if gameboard[x].name == 'Unit' and gameboard[x].playerID != gameboard[unit].playerID]
                 seen = False
                 for y in enemies: 
                     if target in y.lineOfSight['Clear']:
@@ -114,7 +114,7 @@ class EngineerMovement(gen.Movement):
                     reducedCost = reducedCost = reducedCost + 1
                     
         for x in gameboard:
-            if type(x).__name__ == 'Unit':
+            if gameboard[x].name == 'Unit':
                 gameboard[x].checkReaction(x,gameboard,['Any'])
         
         if 'Cost' in args:
@@ -126,7 +126,7 @@ class EngineerMovement(gen.Movement):
         for x in range(0,len(target)+1):        
             if x <= distance:
                 gameboard = gameboard[unit].movementEffects(unit,target[x],gameboard)
-                if type(gameboard[target[x]]).__name__ == 'StealthToken':
+                if gameboard[target[x]].name == 'StealthToken':
                     gameboard[target[x]].stealthTokenEffect(unit,gameboard)
                     del gameboard[target[x]]
                 gameboard[target[x]].direction = random.choice(self.directions)
@@ -422,11 +422,12 @@ class Build(gen.Ability):
     
     name = 'Build' 
     cost = {'Turn':'Special'}
-    
+    buildChoice = 'None'
+    numCommons = 5
     Blueprints = Blueprint()
     
     def getTargets(self,unit,gameboard):
-        return [x for x in gameboard[unit].adjacentSpaces() if x not in gameboard]
+        return [x for x in gameboard[unit].adjacentSpaces() if x not in gameboard and x in gen.boardLocations]
     
     def buildCommon(self,unit,target,gameboard,unitObj):
         gameboard[target] = unitObj
@@ -456,13 +457,18 @@ class Build(gen.Ability):
         return gameboard
             
     def buildObstacle(self,unit,target,gameboard):
-        selectObstacle = random.choice(gameboard[unit].Obstacles)
+        selectObstacle = random.choice([x for x in gameboard[unit].Obstacles if x in gameboard[unit].abilities])
         gameboard[target] = selectObstacle
         return gameboard
     
-    def abilityEffect(self,numCommons):
-        choice = random.choice(['Common','Obstacle'])
-        return choice
+    def abilityEffect(self,unit,target,gameboard):
+        numCommons = len([x for x in gameboard if gameboard[x].unitType == 'Common' and gameboard[x].playerID == self.playerID])
+        if numCommons < self.numCommons:
+            self.buildChoice = random.choice(['Common','Obstacle'])
+        else:
+            self.buildChoice = 'Obstacle'
+
+        return gameboard
 
 # Tier 0
 class PlaceRelay:
@@ -472,6 +478,7 @@ class PlaceRelay:
     def abilityEffect(self,unit,target,gameboard):
         target = random.choice([x for x in gameboard[unit].adjacentSpaces() if x not in gameboard])
         gameboard[target] = Relay(gameboard[unit].playerID,target)
+        return gameboard
 
 class Relay(gen.Obstacle):
     name = 'Relay'
@@ -488,6 +495,7 @@ class PlaceWall(gen.Ability):
     def abilityEffect(self,unit,target,gameboard):
         target = random.choice([x for x in gameboard[unit].adjacentSpaces() if x not in gameboard])
         gameboard[target] = Wall(gameboard[unit].playerID,target)
+        return gameboard
         
 class Wall(gen.Obstacle):
     name = 'Wall'
@@ -528,7 +536,7 @@ class Turret(gen.Obstacle,gen.Unit):
     def __init__(self,playerID,location,damage):
         self.playerID = playerID
         self.location = location
-        self.abilities = {'TurretAttack':gen.TurretAttack(),'Movement':gen.Movement()}
+        self.abilities = {'TurretAttack':TurretAttack(self.name,playerID),'Movement':gen.Movement(self.name,playerID)}
         self.attributeManager = gen.AttributeManager({'Health':0,'Attack':1,'Movement':0,'Special':0,'Reaction':1,'Damage':damage,'Evasion':0,'Hit':1,'Armor':0})
         
     def getRange(self):
@@ -576,7 +584,8 @@ class Repair(gen.Ability):
         gameboard[target].attributeManager.changeAttributes['Health',2]
         if gameboard[target].attributeManager.currentAttributes['Health'] > gameboard[target].maxHealth:
             gameboard[target].attributeManager.currentAttributes['Health'] = gameboard[target].maxHealth
-        
+        return gameboard
+    
 class PlaceMedbay(gen.Ability):
     name = 'PlaceMedbay'
     cost = {'Turn':['Special']}
@@ -584,7 +593,8 @@ class PlaceMedbay(gen.Ability):
     def abilityEffect(self,unit,target,gameboard):
         target = random.choice([x for x in gameboard[unit].adjacentSpaces() if x not in gameboard])
         gameboard[target] = Medbay(gameboard[unit].playerID,target)
-        
+        return gameboard
+    
 class Medbay(gen.Obstacle):
     name = 'Medbay'
     auraRange = 2
@@ -633,6 +643,7 @@ class PlaceArmory(gen.Ability):
     def abilityEffect(self,unit,target,gameboard):
         target = random.choice([x for x in gameboard[unit].adjacentSpaces(gameboard[unit].location) if x not in gameboard])
         gameboard[target] = Armory(gameboard[unit].playerID,target)
+        return gameboard
     
 class Recycling(gen.Ability):
     name = 'Recycling'
@@ -742,7 +753,8 @@ class PlaceEMPTower(gen.Ability):
     def abilityEffect(self,unit,target,gameboard):
         target = random.choice([x for x in gameboard[unit].adjacentSpaces() if x not in gameboard])
         gameboard[target] = EMPTower(gameboard[unit].playerID,target)
-        
+        return gameboard
+    
 class RadarTower(gen.Obstacle):
     name = 'RadarTower'
     aura = 'RadarTower'
@@ -857,9 +869,13 @@ class EngineerUnit(gen.Unit):
     # will need separate 'remove blueprint' functions
     
     def passiveMods(self,unit,target,gameboard,combatSteps):
-        elite = [x for x in gameboard if gameboard[x].unitType == 'Elite' and gameboard[x].playerID == gameboard[x].playerID][0]
+        elite = [x for x in gameboard if gameboard[x].unitType == 'Elite' and gameboard[x].playerID == gameboard[x].playerID]
+        if elite:
+            elite = elite[0]
+        else:   
+            elite = unit
         if self.location == unit:
-            if [y for y in [x for x in self.adjacentSpaces()] if 'Lethargy' in gameboard[y].abilities] and 'Wounding' in combatSteps['AttackMods']:
+            if [y for y in [x for x in self.adjacentSpaces(unit) if x in gameboard] if 'Lethargy' in gameboard[y].abilities] and 'Wounding' in combatSteps['AttackMods']:
                 combatSteps['AttackMods'].remove('Wounding')
             if 'RadarTower' in gameboard[elite].abilities:
                 if len([x for x in self.getAOETargets(gameboard[unit].abilities['RadarTower'].getAuraRange(),unit) if gameboard[x].aura == 'RadarTower']) > 0:
@@ -912,53 +928,54 @@ class EngineerPlayer(gen.Player):
         for unit in self.units:
             self.units[unit].setClass(self.playerClass,self.playerID,self.captureCost)        
     
-    def turn(self,gameboard,players):
-        # while not passed keep going
-        self.refreshPoints(gameboard)
+    # def turn(self,gameboard,players):
+    #     # while not passed keep going
+    #     self.refreshPoints(gameboard)
 
-        unitChoices = {x:gameboard.get(x) for x in gameboard.keys() if type(gameboard[x]).__name__ == 'Unit' and gameboard.get(x).playerID == self.playerID}
-        unitChoices['Pass'] = 'Pass'
+    #     unitChoices = {x:gameboard.get(x) for x in gameboard.keys() if type(gameboard[x]).__name__ == 'Unit' and gameboard.get(x).playerID == self.playerID}
+    #     unitChoices['Pass'] = 'Pass'
         
-        while True:
-            for unit in self.units:
-                self.units[unit].unitOptions = self.units[unit].createOptions()
-            unitChoice = unitChoices.get(random.choice(list(unitChoices.keys())))
-            if unitChoice == 'Pass':
-                break
-            # execute ability
-            if unitChoice.unitOptions:
-                abilityChoice = unitChoice.abilities.get(random.choice(unitChoice.unitOptions))
-                if abilityChoice == 'Build':
-                    numCommons = len([x for x in gameboard if gameboard[x].unitType == 'Common' and gameboard[x].playerID == self.playerID])
-                    if numCommons < 5:
-                        buildChoice = random.choice(['Common','Obstacle'])
-                    elif numCommons < 9 and 'MechanicalArmy' in self.abilities:
-                        buildChoice = random.choice(['Common','Obstacle'])
-                    else:
-                        buildChoice = 'Obstacle'
-                    target = unitChoice.abilities['Build'].getTargets(unitChoice.location,gameboard)
-                    if buildChoice == 'Common':
-                        newCommon = random.choice([self.units[x] for x in self.units if x not in unitChoices and self.units[x].unitType == 'Common'])
-                        unitChoice.abilities['Build'].buildCommon(unitChoice.location,target,gameboard,newCommon)
-                    elif buildChoice == 'Obstacle':
-                        newObstacle = random.choice([x for x in unitChoice.buildOptions if x in unitChoice.abilities])
-                        unitChoice.abilities['Build'].buildObstacle(unitChoice.location,target,gameboard,newObstacle)
-                else:
-                    unitChoice.abilities[abilityChoice].execute(unit,gameboard)
-            for unit in gameboard:
-                if type(unit).__name__ == 'Unit' and unit.playerID == self.playerID:
-                    if unit.attributeManager.getAttributes('Health') <= 0:
-                        self.updateUnits(unit)
-                        del gameboard[unit]
-            # then pick an option
-        return gameboard, players
+    #     while True:
+    #         for unit in self.units:
+    #             self.units[unit].unitOptions = self.units[unit].createOptions()
+    #         unitChoice = unitChoices.get(random.choice(list(unitChoices.keys())))
+    #         if unitChoice == 'Pass':
+    #             break
+    #         # execute ability
+    #         if unitChoice.unitOptions:
+    #             abilityChoice = unitChoice.abilities.get(random.choice(unitChoice.unitOptions))
+    #             if abilityChoice == 'Build':
+    #                 numCommons = len([x for x in gameboard if gameboard[x].unitType == 'Common' and gameboard[x].playerID == self.playerID])
+    #                 if numCommons < 5:
+    #                     buildChoice = random.choice(['Common','Obstacle'])
+    #                 elif numCommons < 9 and 'MechanicalArmy' in self.abilities:
+    #                     buildChoice = random.choice(['Common','Obstacle'])
+    #                 else:
+    #                     buildChoice = 'Obstacle'
+    #                 target = unitChoice.abilities['Build'].getTargets(unitChoice.location,gameboard)
+    #                 if buildChoice == 'Common':
+    #                     newCommon = random.choice([self.units[x] for x in self.units if x not in unitChoices and self.units[x].unitType == 'Common'])
+    #                     unitChoice.abilities['Build'].buildCommon(unitChoice.location,target,gameboard,newCommon)
+    #                 elif buildChoice == 'Obstacle':
+    #                     newObstacle = random.choice([x for x in unitChoice.buildOptions if x in unitChoice.abilities])
+    #                     unitChoice.abilities['Build'].buildObstacle(unitChoice.location,target,gameboard,newObstacle)
+    #             else:
+    #                 unitChoice.abilities[abilityChoice].execute(unit,gameboard)
+    #         for unit in gameboard:
+    #             if type(unit).__name__ == 'Unit' and unit.playerID == self.playerID:
+    #                 if unit.attributeManager.getAttributes('Health') <= 0:
+    #                     self.updateUnits(unit)
+    #                     del gameboard[unit]
+    #         # then pick an option
+    #     return gameboard, players
     
     def beginningTurnEffects(self,gameboard):
-        Obstacles = [x for x in [Wall(),Turret(),Relay(),Medbay(),Armory(),Bunker(),EMPTower(),RadarTower()]]
+        self.Obstacles = [x for x in [Wall(self.name,self.playerID),Turret(self.name,self.playerID,2),Relay(self.name,self.playerID),Medbay(self.name,self.playerID),
+                                 Armory(self.name,self.playerID),Bunker(self.name,self.playerID),EMPTower(self.name,self.playerID),RadarTower(self.name,self.playerID)]]
         commons = [x for x in gameboard if gameboard[x].unitType == 'Common' and gameboard[x].playerID == self.playerID]
-        elite = [x for x in gameboard if gameboard[x].unitType == 'Elite' and gameboard[x].playerID == self.playerID][0]
+        elite = [x for x in gameboard if gameboard[x].unitType == 'Elite' and gameboard[x].playerID == self.playerID]
         for x in commons:
-            if gameboard[x].unusedBlueprints > 0:
+            if gameboard[x].unusedBlueprints > 0 and elite:
                 gameboard[elite].unusedBlueprints = gameboard[elite].unusedBlueprints + gameboard[x].unusedBlueprints
                 gameboard[x].unusedBlueprints = 0
         return gameboard
@@ -978,6 +995,7 @@ class EngineerPlayer(gen.Player):
         if 'Medbay' in self.units['Elite'].abilities:
             if [x for x in self.units['Elite'].abilities['Medbay'].getAOETargets(self.units['Elite'].abilities['Medbay']._range,self.units['Elite'].location) if type(gameboard[x]).__name__ == 'Medbay']:
                 self.units['Elite'].attributeManager.currentAttributes['Health'] = self.units['Elite'].maxHealth
+        return gameboard
     
     def blueprintEffects(self,gameboard):
         # Shouldn't be used. Any blueprint effects should be migrated to other beginning/ending functions
