@@ -36,8 +36,8 @@ class Game:
     directions = ['n','ne','se','s','sw','nw']
         
     gameboard = {(1,5):gen.Objective((1,5),'Player2'), (4,5):gen.Respawn((4,5),'Player2'), (7,5):gen.Respawn((7,5),'Player3'), (10,5):gen.Objective((10,5),'Player3'),
-                (1,11):gen.Respawn((1,11),'None'), (4,11):gen.Objective((4,11),'None'), (7,11):gen.Respawn((7,11),'Player1'), (10,11):gen.Objective((10,11),'Player1'), (13,11):gen.Respawn((13,11),'Player4'), (15,10):gen.Objective((15,10),'Player4'),
-                (7,17):gen.Respawn((7,17),'None'), (10,17):gen.Objective((10,17),'None'), (13,17):gen.Respawn((13,17),'None'), (15,17):gen.Objective((15,17),'None'),
+                (1,11):gen.Respawn((1,11),'Player3'), (4,11):gen.Objective((4,11),'None'), (7,11):gen.Respawn((7,11),'Player1'), (10,11):gen.Objective((10,11),'Player1'), (13,11):gen.Respawn((13,11),'Player4'), (15,10):gen.Objective((15,10),'Player4'),
+                (7,17):gen.Respawn((7,17),'Player1'), (10,17):gen.Objective((10,17),'None'), (13,17):gen.Respawn((13,17),'Player1'), (15,17):gen.Objective((15,17),'None'),
                 'EliminatedUnits':gen.EliminatedUnitManager()}
                      
         
@@ -92,6 +92,7 @@ class Game:
                                     # `event.pos` is the mouse position.
                                     if button1.collidepoint(event.pos):       
                                         self.gameboard = player.respawnUnits(self.gameboard)
+                                        self.currentPlayer = player
                                         self.gameboard, self.players = player.turn(self.gameboard,self.players)
                                         buttonpress = True
                         if buttonpress:
@@ -118,7 +119,6 @@ class Game:
                             if errorFlag:
                                 print(self.gameboard[x])
                                 errorFlag = False
-                                # stealth token is giving problems
                             my_group = pygame.sprite.Group(self.gameboard[x].boardImage)
                             my_group.draw(root)
                     playerNameClass = FONT.render(player.playerClass + ' ' + player.playerID, True, white)
@@ -134,15 +134,16 @@ class Game:
                     button_rect = button_text.get_rect(center=(1140,250))
                     root.blit(button_text,button_rect)
                     
-                    # works on making sure units do not respawn if already in board
-                    # figure out why engineer player isn't taking actions
+                    # TO DO: validate leveling up is working as intended
+                    # Validate adding abilities
+                    # Troubleshoot normal vs unhindered movement
                     
                     pygame.display.flip()
                     # if buttonpress:
                     #     break
                                 
-            self.turnCounter = self.turnCounter + 1
-            self.endRound()
+                self.turnCounter = self.turnCounter + 1
+                self.endRound()
             
 
             # display.flip() will update the contents of the entire display
@@ -154,15 +155,15 @@ class Game:
             # But if you give surface(s) as arguments, it will update only these surfaces. 
             # So it can be faster, depending on how many surfaces you give it and their width and height.
 
-            # if self.turnCounter == 10:
-            #     print('end')
-            #     # pygame.quit()
-            #     break
+            if self.turnCounter == 10:
+                print('end')
+                pygame.quit()
+                # break
                 
     def endRound(self):
         for player in self.players:
-            player.manageExp()
-            player.gainVictoryPoints(len([x for x in self.gameboard if type(self.gameboard[x]).__name__ == 'Objective' and self.gameboard[x].playerID == player.playerID]))
+            self.gameboard = player.manageExp(self.gameboard)
+            player.gainVictoryPoints(len([x for x in self.gameboard if self.gameboard[x].name == 'Objective' and self.gameboard[x].playerID == player.playerID]))
 
 
 

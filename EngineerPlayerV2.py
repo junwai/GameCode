@@ -12,6 +12,8 @@ import lineOfSight as LOS
         # ENGINEER #
         ############
 
+## TO DO: Make sure blueprints are working as intended
+
 class EngineerMovement(gen.Movement):
     
     def availableMovement(self,unit,gameboard,origin,*effects):
@@ -171,7 +173,7 @@ class TeslaCoil:
             bpeffect = 1
         else:
             bpeffect = 2
-        targets = [x for x in self.getAOETargets(1,unit) if x in gameboard]
+        targets = self.getAOETargets(1,unit,gameboard)
         for x in targets:
             gameboard = self.combat(unit,target,gameboard,{'Damage':bpeffect,'Wounding':True,'Piercing':True})
         return gameboard        
@@ -280,8 +282,8 @@ class GeomorphicEngine:
             bpeffect = 4
         else:
             bpeffect = 5
-        movetarget = random.choice([x for x in self.getAOETargets(bpeffect,unit) if gameboard[x].unitType == 'Obstacle' or gameboard[x].built == True])
-        newspace = random.choice([x for x in self.getAOETargets(bpeffect,unit) if x not in gameboard])
+        movetarget = random.choice([x for x in self.getAOETargets(bpeffect,unit,gameboard) if gameboard[x].unitType == 'Obstacle' or gameboard[x].built == True])
+        newspace = random.choice(self.getAOETargets(bpeffect,unit,gameboard))
         gameboard[newspace] = gameboard[movetarget]
         del gameboard[movetarget]
         return gameboard
@@ -399,6 +401,25 @@ class Blueprint:
             'Dreadnought':8
             }
     
+    blueprintNamesToCostReduced = {
+            'Railgun':1,
+            'Biotechnology':1,
+            'TeslaCoil':1,
+            'PulseCannon':1,
+            'Thrusters':1,
+            'ResponseProtocols':1,
+            'Twinmount':1,
+            'EnhancedAI':1,
+            'CloakingDevice':1,
+            'GeomorphicEngine':1,
+            'ReinforcedFrame':3,
+            'TeleportNode':3,
+            'Tank':4,
+            'StateOfTheArt':5,
+            'PlasmaCannon':6,
+            'Dreadnought':8
+            }
+    
     blueprintEnabled = False
     
     def getBlueprintCost(self,unit,gameboard):
@@ -412,22 +433,22 @@ class Blueprint:
         self.blueprintEnabled = True
         return gameboard
     
-    def removeBlueprint(self,gameboard,unit):
+    def removeBlueprint(self,unitObj):
         self.blueprintEnabled = False
-        return gameboard
+        return unitObj
 
 class Build(gen.Ability):
     
     unusedBlueprints = 3
     
     name = 'Build' 
-    cost = {'Turn':'Special'}
+    cost = {'Turn':['Special']}
     buildChoice = 'None'
     numCommons = 5
     Blueprints = Blueprint()
     
     def getTargets(self,unit,gameboard):
-        return [x for x in gameboard[unit].adjacentSpaces() if x not in gameboard and x in gen.boardLocations]
+        return [x for x in self.adjacentSpaces(unit) if x not in gameboard and x in gen.boardLocations]
     
     def buildCommon(self,unit,target,gameboard,unitObj):
         gameboard[target] = unitObj
@@ -457,27 +478,36 @@ class Build(gen.Ability):
         return gameboard
             
     def buildObstacle(self,unit,target,gameboard):
+        # Build costs a Special point. The individual build abilities are passive
         selectObstacle = random.choice([x for x in gameboard[unit].Obstacles if x in gameboard[unit].abilities])
-        gameboard[target] = selectObstacle
+        gameboard = gameboard[unit].abilities[selectObstacle].abilityEffect(unit,target,gameboard)
         return gameboard
     
     def abilityEffect(self,unit,target,gameboard):
         numCommons = len([x for x in gameboard if gameboard[x].unitType == 'Common' and gameboard[x].playerID == self.playerID])
         if numCommons < self.numCommons:
-            self.buildChoice = random.choice(['Common','Obstacle'])
+            buildChoice = random.choice(['Common','Obstacle'])
         else:
-            self.buildChoice = 'Obstacle'
-
+            buildChoice = 'Obstacle'
+        if buildChoice == 'Obstacle':
+            gameboard = self.buildObstacle(unit,target,gameboard)
+        elif buildChoice == 'Common':
+            common = random.choice([a for a in self.units if a not in [gameboard[x].unitName for x in gameboard if gameboard[x].unitType == 'Common' and gameboard[x].playerID == self.playerID]])
+            gameboard = self.buildCommon(unit,target,gameboard,self.units[common])
         return gameboard
 
 # Tier 0
 class PlaceRelay:
     name = 'PlaceRelay'
-    cost = {'Turn':['Special']}
+    cost = {'Passive':['Passive']}
     
     def abilityEffect(self,unit,target,gameboard):
-        target = random.choice([x for x in gameboard[unit].adjacentSpaces() if x not in gameboard])
-        gameboard[target] = Relay(gameboard[unit].playerID,target)
+        respawnSpaces = [a for b in [self.adjacentSpaces(x) for x in gameboard if gameboard[x].name == 'Respawn'] for a in b if a not in gameboard]
+
+        spaces = [x for x in gameboard[unit].adjacentSpaces(unit) if x not in gameboard and x not in respawnSpaces]
+        if spaces:
+            target = random.choice(spaces)
+            gameboard[target] = Relay(gameboard[unit].playerID,target)
         return gameboard
 
 class Relay(gen.Obstacle):
@@ -490,11 +520,15 @@ class Relay(gen.Obstacle):
         
 class PlaceWall(gen.Ability):
     name = 'PlaceWall'
-    cost = {'Turn':['Special']}
+    cost = {'Passive':['Passive']}
     
     def abilityEffect(self,unit,target,gameboard):
-        target = random.choice([x for x in gameboard[unit].adjacentSpaces() if x not in gameboard])
-        gameboard[target] = Wall(gameboard[unit].playerID,target)
+        respawnSpaces = [a for b in [self.adjacentSpaces(x) for x in gameboard if gameboard[x].name == 'Respawn'] for a in b if a not in gameboard]
+
+        spaces = [x for x in gameboard[unit].adjacentSpaces(unit) if x not in gameboard and x not in respawnSpaces]
+        if spaces:
+            target = random.choice(spaces)
+            gameboard[target] = Wall(gameboard[unit].playerID,target)
         return gameboard
         
 class Wall(gen.Obstacle):
@@ -506,12 +540,16 @@ class Wall(gen.Obstacle):
 
 class PlaceTurret(gen.Ability):
     name = 'PlaceTurret'
-    cost = {'Turn':['Special']}
+    cost = {'Passive':['Passive']}
     damage = {1:2,2:2,3:3,4:3,5:3,6:3,7:3,8:3,9:4,10:4}
     
     def abilityEffect(self,unit,target,gameboard):
-        target = random.choice([x for x in gameboard[unit].adjacentSpaces() if x not in gameboard])
-        gameboard[target] = Turret(gameboard[unit].playerID,target,self.damage[gameboard[unit].levelManager.level])
+        respawnSpaces = [a for b in [self.adjacentSpaces(x) for x in gameboard if gameboard[x].name == 'Respawn'] for a in b if a not in gameboard]
+
+        spaces = [x for x in gameboard[unit].adjacentSpaces(unit) if x not in gameboard and x not in respawnSpaces]
+        if spaces:
+            target = random.choice(spaces)
+            gameboard[target] = Turret(gameboard[unit].playerID,target,self.damage[gameboard[unit].levelManager.level])
         return gameboard
 
 class TurretAttack(gen.Attack):
@@ -527,16 +565,19 @@ class TurretAttack(gen.Attack):
             return self.getLOSTargets(unit,gameboard)
 
         else:
-            return self.getAOETargets(gameboard[unit].unitRange,gameboard[unit].location)
+            return self.getAOETargets(gameboard[unit].unitRange,gameboard[unit].location,gameboard)
      
 class Turret(gen.Obstacle,gen.Unit):
     name = 'Turret'
+    unitName = 'Turret'
     unitRange = 2
     
     def __init__(self,playerID,location,damage):
         self.playerID = playerID
         self.location = location
-        self.abilities = {'TurretAttack':TurretAttack(self.name,playerID),'Movement':gen.Movement(self.name,playerID)}
+        self.abilities = {'TurretAttack':TurretAttack(playerID),'Movement':gen.Movement(playerID)}
+        for x in self.abilities:
+            self.abilities[x].unitName = self.unitName
         self.attributeManager = gen.AttributeManager({'Health':0,'Attack':1,'Movement':0,'Special':0,'Reaction':1,'Damage':damage,'Evasion':0,'Hit':1,'Armor':0})
         
     def getRange(self):
@@ -556,7 +597,7 @@ class TeleportModule(gen.Ability):
         
 class MaterialRecall(gen.Ability):
     name = 'MaterialRecall'
-    cost = ['Special']
+    cost = {'Turn':['Special']}
     
     def abilityEffect(self,unit,target,gameboard):
         target = random.choice([x for x in self.adjacentSpaces() if gameboard[x].playerID == self.playerID and gameboard[x].unitType != 'Elite'])
@@ -568,7 +609,7 @@ class MaterialRecall(gen.Ability):
         
 class ManualOverride(gen.Ability):
     name = 'ManualOverride'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     # If adjacent to your Elite, Commons may use your Elite's Reaction points as if it were their own.  
     
 # Tier 1 2+
@@ -578,21 +619,32 @@ class Repair(gen.Ability):
     state = ['Any']
     # add reaction
     def getTargets(self,unit,gameboard):
-        return random.choice([x for x in self.adjacentSpaces(unit)])
+        targets = [x for x in self.adjacentSpaces(unit) if x in gameboard and gameboard[x].playerID == gameboard[unit].playerID and gameboard[x].name == 'Unit']
+        # print('Targets:' + str(targets))
+        # print('Unit:' + str(unit))
+        return targets
     
-    def abilityEffect(self,unit,target,gameboard):
-        gameboard[target].attributeManager.changeAttributes['Health',2]
+    def abilityEffect(self,unit,target,gameboard,*combatSteps):
+        gameboard[target].attributeManager.changeAttributes('Health',2)
         if gameboard[target].attributeManager.currentAttributes['Health'] > gameboard[target].maxHealth:
             gameboard[target].attributeManager.currentAttributes['Health'] = gameboard[target].maxHealth
-        return gameboard
+        if combatSteps:
+            return gameboard,combatSteps
+        else:
+            return gameboard
     
 class PlaceMedbay(gen.Ability):
     name = 'PlaceMedbay'
-    cost = {'Turn':['Special']}
+    cost = {'Passive':['Passive']}
+    auraRange = 2
     
     def abilityEffect(self,unit,target,gameboard):
-        target = random.choice([x for x in gameboard[unit].adjacentSpaces() if x not in gameboard])
-        gameboard[target] = Medbay(gameboard[unit].playerID,target)
+        respawnSpaces = [a for b in [self.adjacentSpaces(x) for x in gameboard if gameboard[x].name == 'Respawn'] for a in b if a not in gameboard]
+
+        spaces = [x for x in gameboard[unit].adjacentSpaces(unit) if x not in gameboard and x not in respawnSpaces]
+        if spaces:
+            target = random.choice(spaces)
+            gameboard[target] = Medbay(gameboard[unit].playerID,target)
         return gameboard
     
 class Medbay(gen.Obstacle):
@@ -613,15 +665,19 @@ class GrapplingHook(gen.Ability):
     # need to code something to not use the ability in a nonideal manner        
     def abilityEffect(self,unit,target,gameboard):
         direction = random.choice(self.directions)
-        targets = self.straightLine(4,self.LOSDirections(direction),unit,gameboard)
-        oldspace = unit
+        targets = self.straightLine(4,random.choice(self.LOSDirections(direction)),unit,gameboard)
+        newspace = unit
+        # is this working as intended?
         for x in range(1,5):
-            newspace = [y for y in targets if self.getDistance(unit,y) == x][0]
-            if x>1:
-                oldspace = newspace[x]
-            if newspace in gameboard and x>1:
-                gameboard[newspace] = gameboard[oldspace]
-                del gameboard[oldspace]
+            if x < len(targets):
+                if targets[x] in gameboard:
+                    newspace = targets[x-1]  
+        if newspace == unit:
+            return gameboard
+        gameboard[newspace] = gameboard[unit]
+        gameboard[newspace].location = newspace
+        del gameboard[unit]
+        
         return gameboard
 
 class Armory(gen.Obstacle):
@@ -638,11 +694,16 @@ class Armory(gen.Obstacle):
         
 class PlaceArmory(gen.Ability):
     name = 'PlaceArmory'
-    cost = {'Turn':['Special']}
-    
+    cost = {'Passive':['Passive']}
+    auraRange = 3
+
     def abilityEffect(self,unit,target,gameboard):
-        target = random.choice([x for x in gameboard[unit].adjacentSpaces(gameboard[unit].location) if x not in gameboard])
-        gameboard[target] = Armory(gameboard[unit].playerID,target)
+        respawnSpaces = [a for b in [self.adjacentSpaces(x) for x in gameboard if gameboard[x].name == 'Respawn'] for a in b if a not in gameboard]
+
+        spaces = [x for x in gameboard[unit].adjacentSpaces(unit) if x not in gameboard and x not in respawnSpaces]
+        if spaces:
+            target = random.choice(spaces)
+            gameboard[target] = Armory(gameboard[unit].playerID,target)
         return gameboard
     
 class Recycling(gen.Ability):
@@ -671,16 +732,21 @@ class Bunker(gen.Obstacle):
 
 class PlaceBunker(gen.Ability):
     name = 'PlaceBunker'
-    cost = {'Turn':['Special']}
-    
+    cost = {'Passive':['Passive']}
+    auraRange = 3
+
     def abilityEffect(self,unit,target,gameboard):
-        target = random.choice([x for x in gameboard[unit].adjacentSpaces() if x not in gameboard])
-        gameboard[target] = Bunker(gameboard[unit].playerID,target)
+        respawnSpaces = [a for b in [self.adjacentSpaces(x) for x in gameboard if gameboard[x].name == 'Respawn'] for a in b if a not in gameboard]
+
+        spaces = [x for x in gameboard[unit].adjacentSpaces(unit) if x not in gameboard and x not in respawnSpaces]
+        if spaces:
+            target = random.choice(spaces)
+            gameboard[target] = Bunker(gameboard[unit].playerID,target)
         return gameboard
     
 class IncreasedRange(gen.Ability):
     name = 'IncreasedRange'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     
     def initAbility(self,gameboard):
         return gameboard            
@@ -690,52 +756,52 @@ class Grenade(gen.Ability):
     cost = {'Turn':['Special']}
     
     def getTargets(self,unit,gameboard):
-        return [x for x in self.getAOETargets(3,unit) if x not in gameboard]
+        
+        for i in range(0,3):
+            spaces = list(set([a for b in [self.adjacentSpaces(x) for x in self.adjacentSpaces(unit)] for a in b]))        
+        return spaces
     
     def abilityEffect(self,unit,target,gameboard):
-        gameboard = self.combat(unit,target,gameboard,{'Wounding':True,'Damage':2})
-        outertargets = [x for x in self.getAOETargets(1,target) if x in gameboard]
+        if target in gameboard:
+            gameboard = self.combat(unit,target,gameboard,{'Wounding':True,'Damage':2})
+        outertargets = [x for x in self.getAOETargets(1,target,gameboard) if x in gameboard]
         for x in outertargets:
             gameboard = self.combat(unit,target,gameboard,{'Wounding':True,'Damage':1})
         return gameboard
         
 class Sidecar(gen.Ability):
     name = 'Sidecar'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     # check
     
 class MechanicalArmy(gen.Ability):
     name = 'MechanicalArmy'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     # check
                 
 # Tier 3 6+            
-class AuraUpgrade(gen.Obstacle):
-    name = 'CellTower'
-    aura = 'CellTower'
-    cost = {'Turn':['Passive']}
-    
-    def __init__(self,playerID,location):
-        self.playerID = playerID
-        self.location = location 
+class AuraUpgrade(gen.Ability):
+    name = 'AuraUpgrade'
+    aura = 'AuraUpgrade'
+    cost = {'Passive':['Passive']}
 
     def initAbility(self,gameboard):
         return gameboard               
 
 class UrbanUpgrade(gen.Ability):
     name = 'UrbanUpgrade'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
 
     def initAbility(self,gameboard):
         return gameboard   
                 
 class RemoteConstruction(gen.Ability):
     name = 'RemoteConstruction'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
                 
 class Extension(gen.Ability):
     name = 'Extension'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
 
 class EMPTower(gen.Obstacle):
     name = 'EMPTower'
@@ -748,11 +814,16 @@ class EMPTower(gen.Obstacle):
                 
 class PlaceEMPTower(gen.Ability):
     name = 'PlaceEMPTower'
-    cost = {'Turn':['Special']}
-    
+    cost = {'Passive':['Passive']}
+    auraRange = 4
+
     def abilityEffect(self,unit,target,gameboard):
-        target = random.choice([x for x in gameboard[unit].adjacentSpaces() if x not in gameboard])
-        gameboard[target] = EMPTower(gameboard[unit].playerID,target)
+        respawnSpaces = [a for b in [self.adjacentSpaces(x) for x in gameboard if gameboard[x].name == 'Respawn'] for a in b if a not in gameboard]
+
+        spaces = [x for x in gameboard[unit].adjacentSpaces(unit) if x not in gameboard and x not in respawnSpaces]
+        if spaces:
+            target = random.choice(spaces)
+            gameboard[target] = EMPTower(gameboard[unit].playerID,target)
         return gameboard
     
 class RadarTower(gen.Obstacle):
@@ -768,17 +839,24 @@ class RadarTower(gen.Obstacle):
         return self.auraRange
 
 class PlaceRadarTower(gen.Ability):
-    name = 'PlaceUAVTower'
-    cost = {'Turn':['Special']}
-    
+    name = 'PlaceRadarTower'
+    cost = {'Passive':['Passive']}
+    auraRange = 3
+
     def abilityEffect(self,unit,target,gameboard):
-        target = random.choice([x for x in gameboard[unit].adjacentSpaces() if x not in gameboard])
-        gameboard[target] = RadarTower(gameboard[unit].playerID,target)
+
+        respawnSpaces = [a for b in [self.adjacentSpaces(x) for x in gameboard if gameboard[x].name == 'Respawn'] for a in b if a not in gameboard]
+
+        spaces = [x for x in gameboard[unit].adjacentSpaces(unit) if x not in gameboard and x not in respawnSpaces]
+
+        if spaces:
+            target = random.choice(spaces)
+            gameboard[target] = RadarTower(gameboard[unit].playerID,target)
         return gameboard
     
 class MobileSecurity(gen.Ability):
     name = 'MobileSecurity'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
 
     def initAbility(self,gameboard,playerID):
         for x in gameboard:
@@ -789,7 +867,7 @@ class MobileSecurity(gen.Ability):
 
 class RotatingMount(gen.Ability):
     name = 'RotatingMount'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
 
     def initAbility(self,gameboard,playerID):
         for x in [x for x in gameboard if gameboard[x].name == 'Turret' and gameboard[x].playerID == playerID]:
@@ -799,17 +877,17 @@ class RotatingMount(gen.Ability):
 
 class LinkingModule(gen.Ability):
     name = 'LinkingModule'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     # check
                 
 # Tier 4 9+
 class EfficientManufacturing(gen.Ability):
     name = 'EfficientManufacturing'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
                 
 class SniperTower(gen.Ability):
     name = 'SniperTower'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     
     def initAbility(self,gameboard,playerID):
         for x in [x for x in gameboard if gameboard[x].name == 'Turret' and gameboard[x].playerID == playerID]:
@@ -818,7 +896,7 @@ class SniperTower(gen.Ability):
 
 class MaterialResearch(gen.Ability):
     name = 'MaterialResearch'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     
     def initAbility(self,gameboard,playerID):
         buildoptions = ['Relay','Armory','Turret','Medbay','Bunker','EMPTower','RadarTower','Wall']
@@ -828,17 +906,17 @@ class MaterialResearch(gen.Ability):
 
 class BlueprintUpgrade(gen.Ability):
     name = 'BlueprintUpgrade'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     #check
                 
 class UpdateVersion20(gen.Ability):
     name = 'UpdateVersion20'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     #check
     
 class AutomatedCover(gen.Ability):
     name = 'AutomatedCover'
-    cost = {'Turn':['Passive'],'Reaction':['Passive']}
+    cost = {'Passive':['Passive'],'Reaction':['Passive']}
     state = ['TakeEliteDamage']
     
     def getTargets(self,unit,gameboard):
@@ -867,23 +945,53 @@ class EngineerUnit(gen.Unit):
     # types of blueprints: add ability, change attributes, change inherent properties (teleport node)
     # the biggest change is blueprints act as dynamic abilities that come and go
     # will need separate 'remove blueprint' functions
-    
-    def passiveMods(self,unit,target,gameboard,combatSteps):
+    def eliteSetClass(self,playerClass,playerID,captureCost):
+        self.playerClass = playerClass
+        self.playerID = playerID
+        self.levelManager = gen.LevelManager(1,playerClass,self.unitType)
+        self.currentAttributes = self.levelManager.getAttributes()
+        self.maxHealth = self.currentAttributes['Health']
+        self.attributeManager = gen.AttributeManager(self.currentAttributes)
+        self.captureCost = captureCost
+        self.abilities = {'Pass':gen.Pass(playerID),'Attack':gen.Attack(playerID), 'Movement':gen.Movement(playerID), 'Reorient':gen.Reorient(playerID), 'Perception':gen.Perception(playerID),
+                 'AccurateStrike': gen.AccurateStrike(playerID),'Avoid':gen.Avoid(playerID),'PurposefulDodge':gen.PurposefulDodge(playerID),'RedirectedStrike':gen.RedirectedStrike(playerID),
+                 'Build': Build(playerID), 'TeleportModule':TeleportModule(playerID),'MaterialRecall':MaterialRecall(playerID),'ManualOverride':ManualOverride(playerID)}
+        for x in self.abilities:
+            self.abilities[x].unitName = self.unitName
+        self.boardImage = gen.MySprite(self.playerClass,self.unitType)
+        
+    def passiveMods(self,unit,target,gameboard,combatSteps):        
+        
         elite = [x for x in gameboard if gameboard[x].unitType == 'Elite' and gameboard[x].playerID == gameboard[x].playerID]
         if elite:
             elite = elite[0]
+            gameboard[elite].location = elite
         else:   
             elite = unit
         if self.location == unit:
             if [y for y in [x for x in self.adjacentSpaces(unit) if x in gameboard] if 'Lethargy' in gameboard[y].abilities] and 'Wounding' in combatSteps['AttackMods']:
                 combatSteps['AttackMods'].remove('Wounding')
-            if 'RadarTower' in gameboard[elite].abilities:
-                if len([x for x in self.getAOETargets(gameboard[unit].abilities['RadarTower'].getAuraRange(),unit) if gameboard[x].aura == 'RadarTower']) > 0:
-                    combatSteps['AddHit'] = combatSteps['AddHit'] + 2
-            if 'Armory' in gameboard[elite].abilities:
-                if len([x for x in self.getAOETargets(gameboard[unit].abilities['Armory'].getAuraRange(),unit) if gameboard[x].aura == 'Armory']) > 0:
-                    combatSteps['AddDamage'] = combatSteps['AddDamage'] + 1
-                    combatSteps['AddHit'] = combatSteps['AddHit'] + 1
+            if elite:
+                if 'RadarTower' in gameboard[elite].abilities:
+                    rt = 0
+                    radarTower = [x for x in gameboard if gameboard[x].name == 'RadarTower']
+                    if radarTower:
+                        for x in radarTower:
+                            if elite in self.getAOETargets(gameboard[x].auraRange,x,gameboard):
+                                rt = 1
+                            if rt:
+                                combatSteps['AddHit'] = combatSteps['AddHit'] + 2
+                if 'Armory' in gameboard[elite].abilities:
+                    am = 0
+                    armory = [x for x in gameboard if gameboard[x].name == 'Armory']
+                    if armory:
+                        for x in armory:
+                            if elite in self.getAOETargets(gameboard[x].auraRange,x,gameboard):
+                                am = 1
+                            if am:
+                                combatSteps['AddDamage'] = combatSteps['AddDamage'] + 1
+                                combatSteps['AddHit'] = combatSteps['AddHit'] + 1
+                                break
 
         if self.location == target:
             if [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]:
@@ -891,28 +999,45 @@ class EngineerUnit(gen.Unit):
                 for x in elites:
                     if gameboard[x].getDistance(target) <= gameboard[x].attunement['Water']:
                         combatSteps['AddEvasion'] = combatSteps['AddEvasion'] - 2
-            if 'RadarTower' in gameboard[elite].abilities:
-                if len([x for x in self.getAOETargets(gameboard[unit].abilities['RadarTower'].getAuraRange(),unit) if gameboard[x].aura == 'RadarTower']) > 0:
-                    combatSteps['AddEvasion'] = combatSteps['AddEvasion'] + 2
-                    if 'Wounding' in combatSteps['AttackMods']:
-                        combatSteps['AttackMods'].remove('Wounding')
-                        combatSteps['CalcHit'] = 6
-                        combatSteps['AddHit'] = 0
-                    
+            if elite:
+                if 'RadarTower' in gameboard[elite].abilities:
+                    rt = 0
+                    radarTower = [x for x in gameboard if gameboard[x].name == 'RadarTower']
+                    if radarTower:
+                        for x in radarTower:
+                            if elite in self.getAOETargets(gameboard[x].auraRange,x,gameboard):
+                                rt = 1
+                            if rt:
+                                combatSteps['AddEvasion'] = combatSteps['AddEvasion'] + 2
+                                if 'Wounding' in combatSteps['AttackMods']:
+                                    combatSteps['AttackMods'].remove('Wounding')
+                                    combatSteps['CalcHit'] = 6
+                                    combatSteps['AddHit'] = 0   
+                                break
+                if 'Bunker' in gameboard[elite].abilities:
+                    bk = 0
+                    bunker = [x for x in gameboard if gameboard[x].name == 'Bunker']
+                    if bunker:
+                        for x in bunker:
+                            if elite in self.getAOETargets(gameboard[x].auraRange,x,gameboard):
+                                bk = 1
+                            if bk:
+                                combatSteps['AddArmor'] = combatSteps['AddArmor'] + 1
+                                if 'Piercing' in combatSteps['AttackMods']:
+                                    combatSteps['AttackMods'].remove('Piercing')      
+                                break
+                        
             if 'CloakingDevice' in self.unitBlueprints:
                 eva = random.randint(1,6)
                 if eva > combatSteps['CalcEvasion']:
                     combatSteps['CalcEvasion'] = eva
-            if 'Bunker' in gameboard[elite].abilities:
-                if len([x for x in self.getAOETargets(gameboard[unit].abilities['Bunker'].getAuraRange(),unit) if gameboard[x].aura == 'Bunker']) > 0:
-                    combatSteps['AddArmor'] = combatSteps['AddArmor'] + 1
-                if 'Piercing' in combatSteps['AttackMods']:
-                    combatSteps['AttackMods'].remove('Piercing')
+
                 
         return gameboard, combatSteps
 
 class EngineerPlayer(gen.Player):
     captureCost = 'Special'
+    bluePrint = Blueprint()
     
     units = {'Elite':EngineerUnit('Elite','Elite',0),'Common1':EngineerUnit('Common','Common1',0),\
               'Common2':EngineerUnit('Common','Common2',0),'Common3':EngineerUnit('Common','Common3',0),\
@@ -926,7 +1051,11 @@ class EngineerPlayer(gen.Player):
                       'Common2':EngineerUnit('Common','Common2',0),'Common3':EngineerUnit('Common','Common3',0),\
                       'Common4':EngineerUnit('Common','Common4',0)}
         for unit in self.units:
-            self.units[unit].setClass(self.playerClass,self.playerID,self.captureCost)        
+            if self.units[unit].unitType == 'Common':
+                self.units[unit].setClass(self.playerClass,self.playerID,self.captureCost)
+            elif self.units[unit].unitType == 'Elite':
+                self.units[unit].setClass(self.playerClass,self.playerID,self.captureCost)
+                
     
     # def turn(self,gameboard,players):
     #     # while not passed keep going
@@ -970,14 +1099,34 @@ class EngineerPlayer(gen.Player):
     #     return gameboard, players
     
     def beginningTurnEffects(self,gameboard):
-        self.Obstacles = [x for x in [Wall(self.name,self.playerID),Turret(self.name,self.playerID,2),Relay(self.name,self.playerID),Medbay(self.name,self.playerID),
-                                 Armory(self.name,self.playerID),Bunker(self.name,self.playerID),EMPTower(self.name,self.playerID),RadarTower(self.name,self.playerID)]]
+        self.Obstacles = [x for x in [Wall('Wall',self.playerID),Turret('Turret',self.playerID,2),Relay('Relay',self.playerID),Medbay('Medbay',self.playerID),
+                                 Armory('Armory',self.playerID),Bunker('Bunker',self.playerID),EMPTower('EMPTower',self.playerID),RadarTower('RadarTower',self.playerID)]]
         commons = [x for x in gameboard if gameboard[x].unitType == 'Common' and gameboard[x].playerID == self.playerID]
         elite = [x for x in gameboard if gameboard[x].unitType == 'Elite' and gameboard[x].playerID == self.playerID]
+        if elite:
+            elite = elite[0]
+        
+        # transfer any unusedblueprints to the elite
         for x in commons:
             if gameboard[x].unusedBlueprints > 0 and elite:
                 gameboard[elite].unusedBlueprints = gameboard[elite].unusedBlueprints + gameboard[x].unusedBlueprints
                 gameboard[x].unusedBlueprints = 0
+            elif gameboard[x].unusedBlueprints > 0:
+                self.units['Elite'].unusedBlueprints = self.units['Elite'].unusedBlueprints + gameboard[x].unusedBlueprints
+        
+        # if unit is eliminated, remove blueprints and return to elite
+        gbunits = [gameboard[x].unitName for x in gameboard if gameboard[x].unitType == 'Common' and gameboard[x].playerID == self.playerID]
+        
+        for x in [a for a in self.units if a not in gbunits]:
+            for bp in self.units[x].unitBlueprints:
+                self.units[x] = self.units[x].unitBlueprints[bp].removeBlueprint(self.units[x])
+                if 'UpdateVersion20' not in self.abilities:
+                    blueprints = self.bluePrint.blueprintNamesToCost[bp] 
+                elif 'UpdateVersion20' in self.abilities:
+                    blueprints = self.bluePrint.blueprintNamesToCostReduced[bp]
+                self.units['Elite'].unusedBlueprints = self.units['Elite'].unusedBlueprints + blueprints
+            self.units[x].unitBlueprints = {}
+        
         return gameboard
     
     def endTurnEffects(self,gameboard):
@@ -993,15 +1142,71 @@ class EngineerPlayer(gen.Player):
                     gameboard[x].attributeManager.currentAttributes['Health'] = gameboard[x].maxHealth
 
         if 'Medbay' in self.units['Elite'].abilities:
-            if [x for x in self.units['Elite'].abilities['Medbay'].getAOETargets(self.units['Elite'].abilities['Medbay']._range,self.units['Elite'].location) if type(gameboard[x]).__name__ == 'Medbay']:
-                self.units['Elite'].attributeManager.currentAttributes['Health'] = self.units['Elite'].maxHealth
+            elite = [x for x in gameboard if gameboard[x].name == 'Unit' and gameboard[x].unitName == 'Elite' and gameboard[x].playerID == self.playerID]
+            medbay = [x for x in gameboard if gameboard[x].name == 'Medbay' and gameboard[x].playerID == self.playerID]
+            if elite and medbay:
+                self.units['Elite'].location = elite[0]
+                for mb in medbay:
+                    if elite in self.getAOETargets(gameboard[mb].getAuraRange(),self.units['Elite'].location,gameboard):
+                        gameboard[elite] = self.units['Elite'].maxHealth
+            else:
+                self.units['Elite'].location = 'None'
         return gameboard
     
-    def blueprintEffects(self,gameboard):
-        # Shouldn't be used. Any blueprint effects should be migrated to other beginning/ending functions
-        units = [x for x in gameboard if gameboard[x].playerID == self.playerID and gameboard[x].unitType in ['Elite','Common']]
-        for x in units:
-            gameboard[x].blueprintEffects()
-        return gameboard
+    def respawnUnits(self,gameboard):
+        # finds units not in gameboard but in player unit list
+        respawnPoints = [b for c in [self.adjacentSpaces(a) for a in [x for x in gameboard if gameboard[x].name == 'Respawn' and gameboard[x].playerID == self.playerID]] for b in c]
+        respawnPoints = [x for x in respawnPoints if x in self.boardLocations and x not in gameboard]
+        gameboardUnits = [gameboard[x].unitName for x in gameboard if gameboard[x].playerID == self.playerID and gameboard[x].unitName == 'Elite']
+        units = []
+        if 'Elite' not in gameboardUnits:
+            units = ['Elite']
 
-# test = EngineerUnit('Engineer','Elite',0)
+
+        if self.level > 1:
+            if respawnPoints:
+                if 'Elite' in units:
+                    location = random.choice(respawnPoints)
+                    gameboard = self.addUnit(self.units['Elite'], location , gameboard)
+                    gameboard[location].direction = random.choice(self.directions)
+        elif self.level == 1:
+            units = [x for x in self.units if x not in gameboardUnits]
+            if respawnPoints:
+                for x in units:
+                    location = random.choice(respawnPoints)
+                    gameboard = self.addUnit(self.units[x], location , gameboard)
+                    respawnPoints.remove(location)
+                    if not respawnPoints:
+                        break
+                    gameboard[location].direction = random.choice(self.directions)
+            return gameboard
+
+        return gameboard
+    
+    def tier1(self):
+        return {'Repair':Repair(self.playerID),'Medbay':PlaceMedbay(self.playerID),'GrapplingHook':GrapplingHook(self.playerID),'Armory':PlaceArmory(self.playerID),'Recycling':Recycling(self.playerID)}
+    def tier2(self):
+        return {'Bunker':PlaceBunker(self.playerID), 'Grenade':Grenade(self.playerID), 'Sidecar':Sidecar(self.playerID), 'MechanicalArmy':MechanicalArmy(self.playerID)}
+    def tier3(self):
+        return {'AuraUpgrade':AuraUpgrade(self.playerID),'UrbanUpgrade':UrbanUpgrade(self.playerID),'AutomatedCover':AutomatedCover(self.playerID),'RemoteConstruction':RemoteConstruction(self.playerID),'Extension':Extension(self.playerID),\
+                'EMPTower':PlaceEMPTower(self.playerID),'RadarTower':PlaceRadarTower(self.playerID),'MobileSecurity':MobileSecurity(self.playerID),'RotatingMount':RotatingMount(self.playerID),'LinkingModule':LinkingModule(self.playerID)}
+    def tier4(self):
+        return {'EfficientManufacturing':EfficientManufacturing(self.playerID),'SniperTower':SniperTower(self.playerID),'MaterialResearch':MaterialResearch(self.playerID)}
+    
+    def availableAbilities(self):
+        if self.level < 4:
+            return {x:self.tier1().get(x) for x in self.tier1() if x not in self.abilities}
+        elif self.level < 6:
+            options = {**self.tier1(),**self.tier2()}
+            return {x:options.get(x) for x in options if x not in self.abilities}
+        elif self.level < 9:
+            options = {**self.tier1(),**self.tier3()}
+            return {x:options.get(x) for x in options if x not in self.abilities}
+        elif self.level >= 9:
+            options = {**self.tier1(),**self.tier4(),**self.tier3()}
+            return {x:options.get(x) for x in options if x not in self.abilities}
+
+
+# gameboard = {(0,0):EngineerUnit('Elite','Elite',0),(1,1):EngineerUnit('Common','Common1',0)}
+# repair = Repair('test')
+# test = repair.getTargets((0,0),gameboard)

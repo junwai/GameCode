@@ -9,6 +9,7 @@ import math
 import GeneralUse as gen
 import lineOfSight as LOS
 
+# Something is overwriting the respawn
 
 class StealthToken(gen.GeneralUse):
     
@@ -16,6 +17,8 @@ class StealthToken(gen.GeneralUse):
     name = 'StealthToken'
     playerClass = 'None'
     attributeManager = gen.AttributeManager({'Health':0,'Attack':0,'Movement':0,'Reaction':0,'Special':0,'Hit':0,'Evasion':0,'Armor':0})
+    reactionManager = gen.ReactionManager()
+    abilities = {}
     blastTrap = 0
     
     def __init__(self,playerID,location):
@@ -34,15 +37,20 @@ class StealthToken(gen.GeneralUse):
 
 class PlaceStealthToken(gen.Ability):
     name = 'StealthToken'
-    cost = 'Movement'
+    cost = {'Turn':['Movement']}
     
     def getTargets(self,unit,gameboard):
-        return random.choice([x for x in self.adjacentSpaces(unit) if x not in gameboard and x in gen.boardLocations])
-    
+        targets = [x for x in self.adjacentSpaces(unit) if x not in gameboard and x in gen.boardLocations]
+        if targets:
+            return random.choice(targets)
+        else:
+            return []
+        
     def abilityEffect(self,unit,target,gameboard):
-        gameboard[target] = StealthToken(self.playerID,target)
-        if 'BlastTrap' in gameboard[unit].abilities:
-            gameboard[target].blastTrap = 1
+        if target:
+            gameboard[target] = StealthToken(self.playerID,target)
+            if 'BlastTrap' in gameboard[unit].abilities:
+                gameboard[target].blastTrap = 1
         return gameboard
         
 
@@ -74,9 +82,9 @@ class AssassinAttack(gen.Ability):
     def getTargets(self,unit,gameboard,*args):
         if 'PsychicScream' in gameboard[unit].abilities:
             if gameboard[unit].abilities['PsychicScream'].active:
-                spaces = self.getAOETargets(1,unit)
+                spaces = self.getAOETargets(1,unit,gameboard)
         else:
-            spaces = list(set(self.getLOSTargets(unit,gameboard,args)).intersection(set(self.getAOETargets(gameboard[unit].unitRange,gameboard[unit].location))))
+            spaces = list(set(self.getLOSTargets(unit,gameboard,args)).intersection(set(self.getAOETargets(gameboard[unit].unitRange,gameboard[unit].location,gameboard))))
     
         return spaces    
 
@@ -108,10 +116,12 @@ class AssassinUnit(gen.Unit):
         self.unitAttributes = self.levelManager.getAttributes()
         self.attributeManager = gen.AttributeManager(self.unitAttributes)
         self.captureCost = captureCost
-        self.abilities = {'Pass':gen.Pass(self.unitName,playerID),'Attack':AssassinAttack(self.unitName,playerID), 'Movement':gen.Movement(self.unitName,playerID), 'Reorient':gen.Reorient(self.unitName,playerID), 'Perception':gen.Perception(self.unitName,playerID),
-                 'AccurateStrike': gen.AccurateStrike(self.unitName,playerID),'Avoid':AssassinAvoid(self.unitName,playerID),'PurposefulDodge':AssassinPurposefulDodge(self.unitName,playerID),'RedirectedStrike':gen.RedirectedStrike(self.unitName,playerID),
-                 'StealthToken':PlaceStealthToken(self.unitName,playerID),'Efficiency':Efficiency(self.unitName,playerID),'Notoriety':Notoriety(self.unitName,playerID),
-                 'Stealth':Stealth(self.unitName,playerID),'Jaunt':Jaunt(self.unitName,playerID)}
+        self.abilities = {'Pass':gen.Pass(playerID),'Attack':AssassinAttack(playerID), 'Movement':gen.Movement(playerID), 'Reorient':gen.Reorient(playerID), 'Perception':gen.Perception(playerID),
+                 'AccurateStrike': gen.AccurateStrike(playerID),'Avoid':AssassinAvoid(playerID),'PurposefulDodge':AssassinPurposefulDodge(playerID),'RedirectedStrike':gen.RedirectedStrike(playerID),
+                 'Efficiency':Efficiency(playerID),'Notoriety':Notoriety(playerID),
+                 'Stealth':Stealth(playerID),'Jaunt':Jaunt(playerID)}
+        for x in self.abilities:
+            self.abilities[x].unitName = self.unitName
         self.boardImage = gen.MySprite(self.playerClass,self.unitType)
 
     def createCombatModifiers(self,mods):
@@ -149,16 +159,15 @@ class AssassinUnit(gen.Unit):
         return gameboard,combatRolls
         
     def passiveMods(self,unit,target,gameboard,combatSteps):
-        if self.location == unit:
-            if 'KidneyShot' in self.abilities:
+        if self.location == unit and target in gameboard:
+            if 'KidneyShot' in self.abilities and gameboard[target].name == 'Unit':
                 if self.location in [gameboard[target].adjacentSpacesDir()[3],gameboard[target].adjacentSpacesDir()[5]]:
                     combatSteps['AddDamage'] = combatSteps['AddDamage'] + 1
             if 'BackStab' in self.abilities:
                 if self.location in [gameboard[target].adjacentSpacesDir()[3],gameboard[target].adjacentSpacesDir()[5]]:
                     combatSteps['AddHit'] = combatSteps['AddHit'] + 2
             if 'FamiliarTerritory' in self.abilities:
-                spaces = self.abilities['FamiliarTerritory'].getAdjacentSpaces(target)
-                if [x for x in spaces if type(gameboard[x]).__type__ == 'Objective']:
+                if [x for x in self.adjacentSpaces(target) if x in gameboard and gameboard[x].name == 'Objective']:
                     combatSteps['AddHit'] = combatSteps['AddHit'] + 3
                     combatSteps['AddDamage'] = combatSteps['AddDamage'] + 2
             if 'Killshot' in self.abilities:
@@ -181,7 +190,7 @@ class AssassinUnit(gen.Unit):
             if 'Communications' in self.abilities:
                 combatSteps['AddDamage'] = combatSteps['AddDamage'] + len([x for x in gameboard if gameboard[x].playerID == self.playerID and gameboard[x].unitType == 'Common' and target in gameboard[x].lineOfSight['Clear']])
             if 'Vantage' in self.abilities:
-                stealthtokens = [x for x in gameboard if type(gameboard[x]).__name__ == 'StealthToken']
+                stealthtokens = [x for x in gameboard if gameboard[x].name == 'StealthToken']
                 blocked = False
                 for x in stealthtokens:
                     los = LOS.getBlockedPartialLineOfSight(gameboard[unit].direction,unit)
@@ -192,7 +201,7 @@ class AssassinUnit(gen.Unit):
                     combatSteps['AddHit'] = combatSteps['AddHit'] + 3
                     combatSteps['AddDamage'] = combatSteps['AddDamage'] + 3
             if 'Eviscerate' in self.abilities:
-                combatSteps['AddDamage'] = combatSteps['AddDamage'] + len([x for x in self.adjacentSpaces() if gameboard[x].name == 'StealthToken' and gameboard[x].playerID == self.playerID])
+                combatSteps['AddDamage'] = combatSteps['AddDamage'] + len([x for x in self.adjacentSpaces(self.location) if x in gameboard and gameboard[x].name == 'StealthToken' and gameboard[x].playerID == self.playerID])
             if 'Portent' in self.abilities:
                 if self.abilities['Portent'].active:
                     combatSteps['CalcEvasion'] = 2
@@ -200,14 +209,14 @@ class AssassinUnit(gen.Unit):
             
         if self.location == target:
             if 'Meld' in self.abilities:
-                combatSteps['AddEvasion'] = combatSteps['AddEvasion'] + len([x for x in self.adjacentSpaces() if gameboard[x].name == 'StealthToken'])
+                combatSteps['AddEvasion'] = combatSteps['AddEvasion'] + len([x for x in self.adjacentSpaces(self.location) if x in gameboard and gameboard[x].name == 'StealthToken'])
             if 'Wounding' in combatSteps['AttackMods']:
                 if 'Blur' in self.abilities:
                     combatSteps['AttackMods'].remove('Wounding')
                     combatSteps['CalcHit'] = 0
                     combatSteps['AddHit'] = 7
             if 'Anonymity' in self.abilities:
-                spaces = len([x for x in gameboard[target].adjacentSpaces() if gameboard[x].name == 'Unit' and gameboard[x].playerID != gameboard[unit].playerID])
+                spaces = len([x for x in gameboard[target].adjacentSpaces(target) if x in gameboard and gameboard[x].name == 'Unit' and gameboard[x].playerID != gameboard[unit].playerID])
                 combatSteps['AddEvasion'] = combatSteps['AddEvasion'] + spaces
             if [y for y in [x for x in self.adjacentSpaces(self.location) if x in gameboard] if 'Dyskinesia' in gameboard[y].abilities and gameboard[y].playerID != gameboard[unit].playerID]:
                 disadv = random.randint(1,6)
@@ -226,15 +235,15 @@ class AssassinUnit(gen.Unit):
     
     def movementEffects(self,unit,target,gameboard):
         if 'ShadowStep' in self.abilities:
-            token = random.choice([x for x in gameboard[unit].adjacentSpaces(unit) if type(gameboard[x]).__name__ == 'StealthToken'])
-            gameboard[random.choice([x for x in gameboard[unit].abilities['ShadowStep'].adjacentSpaces(token) if x not in gameboard])] = gameboard[token]
+            token = random.choice([x for x in gameboard[unit].adjacentSpaces(unit) if gameboard[x].name == 'StealthToken'])
+            gameboard[random.choice([x for x in gameboard[unit].adjacentSpaces(token) if x not in gameboard])] = gameboard[token]
             del gameboard[token]
         return gameboard
         
-    def addMovementSpaces(self,unit,gameboard,spaces):
+    def addMovementSpaces(self,unit,origin,gameboard,spaces):
         if 'Reaper' in self.abilities:
-            if [x for x in [type(x).__name__ for x in gameboard[unit].adjacentSpaces()] if x in ['Objective','Respawn']]:
-                spaces = [x for x in gameboard if type(gameboard[x]).__name__ in ['Objective','Respawn']]
+            if [x for x in self.adjacentSpaces(unit) if x in gameboard and gameboard[x].name in ['Objective','Respawn']]:
+                spaces = [a for b in [self.adjacentSpaces(x) for x in gameboard if gameboard[x].name in ['Objective','Respawn']] for a in b if a not in gameboard]
         return spaces
 
 # Tier 0
@@ -256,18 +265,22 @@ class Stealth(gen.Ability):
             if spaces:
                 place = random.choice(spaces)
                 gameboard[place] = StealthToken(gameboard[unit].playerID,place)
+                if 'BlastTrap' in gameboard[unit].abilities:
+                    gameboard[place].setBlastTrap()
                 return gameboard
-            else:
-                spaces = random.choice([x for x in gameboard[unit].getAOETargets(2,unit) if x not in gameboard])
-                if spaces:
-                    place = random.choice(spaces)
-                    gameboard[place] = StealthToken(gameboard[unit].playerID,place)
-                    return gameboard
+        else:
+            spaces = gameboard[unit].getAOETargets(2,unit,gameboard)
+            if spaces:
+                place = random.choice(spaces)
+                gameboard[place] = StealthToken(gameboard[unit].playerID,place)
+                if 'BlastTrap' in gameboard[unit].abilities:
+                    gameboard[place].setBlastTrap()
+                return gameboard
         return gameboard
                 
 class Jaunt(gen.Ability):
     name = 'Jaunt'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     
 # Tier 1: 2+
 class QuickStep(gen.Ability):
@@ -277,8 +290,10 @@ class QuickStep(gen.Ability):
     
     def abilityEffect(self,unit,target,gameboard,combatSteps):
         combatSteps['AddEvasion'] = combatSteps['AddEvasion'] + 1
-        gameboard,newpos = gameboard[unit].abilities['Movement'].abilityEffect(unit,target,gameboard,{'Distance':1})
-        combatSteps['newPosition'] = newpos
+        gameboard = gameboard[unit].abilities['Movement'].abilityEffect(unit,target,gameboard,{'Distance':1,'Cost':'Passive'})
+        user = [x for x in gameboard if gameboard[x].name == 'Unit' and gameboard[x].unitName == self.unitName and gameboard[x].playerID == self.playerID]
+        if user:
+            combatSteps['newPosition'] = user[0]
         return gameboard,combatSteps
     
 class KidneyShot(gen.Ability):
@@ -305,19 +320,23 @@ class Rope(gen.Ability):
     state = ['Any']
     
     def getTargets(self,unit,gameboard,*args):
-        return self.LOSTargets(unit,gameboard,args)
+        return self.getLOSTargets(unit,gameboard,args)
     
     def getLOSTargets(self,unit,gameboard,*args):
-        spaces = [x for x in self.getAOETargets(3,unit) if gameboard[x].name == 'Unit']
-        LOS = gameboard[unit].lineOfSight['Clear']+gameboard[unit].lineOfSight['Partial']
+        spaces = [x for x in self.getAOETargets(3,unit,gameboard) if gameboard[x].name == 'Unit']
+        LOS = gameboard[unit].lineOfSightManager.lineOfSight['Clear']+gameboard[unit].lineOfSightManager.lineOfSight['Partial']
         potentialTargets = list(set(LOS).intersection(set(spaces)))
         return potentialTargets
     
-    def abilityEffect(self,unit,target,gameboard):
-        targetSpace = random.choice([x for x in gameboard[target].adjacentSpaces() if gameboard[unit].getDistance(x) < gameboard[unit].getDistance(target)])
-        gameboard[targetSpace] = gameboard[target]
-        gameboard[targetSpace].changeLocation(targetSpace)
+    def abilityEffect(self,unit,target,gameboard,*combatSteps):
+        potentialTargets = [x for x in gameboard[target].adjacentSpaces(target) if gameboard[unit].getDistance(x) < gameboard[unit].getDistance(target)]
+        if potentialTargets:
+            targetSpace = random.choice(potentialTargets)
+            gameboard[targetSpace] = gameboard[target]
+            gameboard[targetSpace].changeLocation(targetSpace)
         del gameboard[target]
+        if combatSteps:
+            return gameboard,combatSteps
         return gameboard
     
 class Sabotage(gen.Ability):
@@ -325,12 +344,12 @@ class Sabotage(gen.Ability):
     cost = {'Turn':['Attack']}
     
     def getTargets(self,unit,gameboard,*args):
-        return [x for x in self.getMeleeTargets(unit,gameboard) if type(gameboard[x]) in ['Obstacle','Objective']]
+        return [x for x in self.getMeleeTargets(unit,gameboard) if gameboard[x].name in ['Obstacle','Objective']]
         
     def abilityEffect(self,unit,target,gameboard):
-        if type(gameboard[target]).__name__ == 'Objective':
+        if gameboard[target].name == 'Objective':
             gameboard = self.dealDamage(unit,target,gameboard,3)
-        if type(gameboard[target]).__name__ == 'Obstacle':
+        if gameboard[target].name == 'Obstacle':
             gameboard = self.dealDamage(unit,target,gameboard,4)
         return gameboard
     
@@ -342,14 +361,21 @@ class Undercover(gen.Ability):
     name = 'Undercover'
     cost = {'Turn':['Movement']}
     
-    def getTargets(unit,gameboard):
-        return [x for x in gameboard if type(gameboard[x]).__name__ == 'StealthToken']
+    def getTargets(self,unit,gameboard):
+        potentialTargets = [x for x in gameboard if gameboard[x].name == 'StealthToken']
+        if potentialTargets:
+            return potentialTargets
+        else:
+            return [unit]
     
     def abilityEffect(self,unit,target,gameboard):
-        moveStealthToken = random.choice([x for x in self.adjacentSpaces(target) if x not in gameboard])
-        gameboard[moveStealthToken] = gameboard[target]
-        del gameboard[target]
-        return gameboard
+        if unit == target:
+            return gameboard
+        else:
+            moveStealthToken = random.choice([x for x in self.adjacentSpaces(target) if x not in gameboard])
+            gameboard[moveStealthToken] = gameboard[target]
+            del gameboard[target]
+            return gameboard
         
 class Interrogate(gen.Ability):
     name = 'Interrogate'
@@ -361,12 +387,14 @@ class Afterimage(gen.Ability):
     state = ['Evasion']
     
     def getTargets(self,unit,gameboard):
-        return [x for x in list(set(self.getAOETargets(3,unit)).intersection(set(gameboard))) if gameboard[x].name == 'StealthToken']
+        return [x for x in list(set(self.getAOETargets(3,unit,gameboard)).intersection(set(gameboard))) if gameboard[x].name == 'StealthToken']
     
-    def abilityEffect(self,unit,target,gameboard):
+    def abilityEffect(self,unit,target,gameboard,*combatSteps):
         gameboard[target] = gameboard[unit]
         gameboard[target].location = target
         del gameboard[unit]
+        if combatSteps:
+            return gameboard,combatSteps
         return gameboard
         
 class DeepStrike(gen.Ability):
@@ -374,8 +402,8 @@ class DeepStrike(gen.Ability):
     cost = {'Turn':['Movement']}
     
     def getTargets(self,unit,gameboard):
-        spaces = [x for x in gameboard if type(gameboard[x]).__name__ == 'Respawn' or gameboard[x].name == 'Objective']
-        return [x for x in list(set([y for y in [self.adjacentSpaces(x) for x in spaces]])) if gameboard[x].name == 'StealthToken']
+        spaces = [x for x in gameboard if gameboard[x].name == 'Respawn' or gameboard[x].name == 'Objective']
+        return [x for y in [self.adjacentSpaces(x) for x in spaces] for x in y if x in gameboard and gameboard[x] == 'StealthToken']            
     
     def abilityEffect(self,unit,target,gameboard):  
         gameboard[target] = gameboard[unit]
@@ -384,28 +412,27 @@ class DeepStrike(gen.Ability):
         
 class Meld(gen.Ability):
     name = 'Meld'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
             
 class Cripple(gen.Ability):
     name = 'Cripple'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
             
 # Tier 2: 5+
 
 class SurpriseAttack(gen.Ability):
     name = 'SurpriseAttack'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     
 class AssassinCounter(gen.Ability):
     name = 'Counter'
     cost = {'Reaction':['Reaction']}
     state = ['Evasion']
     
-    def abilityEffect(self,unit,target,gameboard):
+    def abilityEffect(self,unit,target,gameboard,combatSteps):
         if target in self.getMeleeTargets(target,gameboard):
-            return self.combat(unit,target,gameboard,{'AddHit':3})
-        else:
-            return gameboard
+            gameboard = self.combat(unit,target,gameboard,{'AddHit':3})
+        return gameboard,combatSteps
     
 class Blur(gen.Ability):
     name = 'Blur'
@@ -421,26 +448,29 @@ class Blur(gen.Ability):
     
 class FamiliarTerritory(gen.Ability):
     name = 'FamiliarTerritory'
-    cost = {'Passive':'Passive'}
+    cost = {'Passive':['Passive']}
             
 class CriticalStrike(gen.Ability):
     name = 'CriticalStrike'
-    cost = {'Passive':'Passive'}
+    cost = {'Passive':['Passive']}
     
 class BodyDouble(gen.Ability):
     name = 'BodyDouble'
     cost = {'Turn':['Special'],'Reaction':['Reaction']}
-    state = ['']
+    state = ['Any']
     use = 'Elite'
     
     def getTargets(self,unit,gameboard):
         return [x for x in gameboard if gameboard[x].unitType == 'Common' and gameboard[x].playerID == gameboard[unit].playerID]
     
-    def abilityEffect(self,unit,target,gameboard,combatSteps):
+    def abilityEffect(self,unit,target,gameboard,*combatSteps):
         temp = gameboard[unit]
         gameboard[unit] = gameboard[target]
         gameboard[target] = temp
-        return gameboard,combatSteps
+        if combatSteps:
+            return gameboard,combatSteps
+        else:
+            return gameboard
     
 class Shadowstep(gen.Ability):
     name = 'Shadowstep'
@@ -484,7 +514,7 @@ class Vendetta(gen.Ability):
         
 class Reaper(gen.Ability):
     name = 'Reaper'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
 
 class House(gen.GeneralUse):
     houseRanks = {1:'Resident',2:'Seneschal',3:'Vizier',4:'Grand Master'}
@@ -500,11 +530,11 @@ class Conium(House):
     
 class Virulency(gen.Ability):
     name = 'Virulency'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
             
 class Infect(gen.Ability):
     name = 'Infect'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
             
 class PoisonedDagger(gen.Ability):
     name = 'PoisonedDagger'
@@ -520,7 +550,7 @@ class PoisonedDagger(gen.Ability):
     
 class Lethargy(gen.Ability):
     name = 'Lethargy'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
             
 class Metastasis(gen.Ability):
     name = 'Metastasis'
@@ -537,7 +567,7 @@ class Biohazard(gen.Ability):
     cost = {'Turn':['Special']}
     
     def getTargets(self,unit,gameboard):
-        return self.getAOETargets(2,unit)
+        return self.getAOETargets(2,unit,gameboard)
     
     def abilityEffect(self,unit,target,gameboard):
         for x in target:
@@ -545,7 +575,7 @@ class Biohazard(gen.Ability):
         return gameboard
     
     def execute(self,unit,gameboard,*args):
-        potentialTargets = self.getTargets(unit,gameboard,args)
+        potentialTargets = self.getTargets(unit,gameboard,*args)
         target = potentialTargets
         gameboard = self.abilityEffect(unit,target,gameboard)
         gameboard[unit].reactionManager.setState('None')
@@ -557,7 +587,7 @@ class Plaguelord(gen.Ability):
     cost = {'Turn':['Special']}
     
     def getTargets(self,unit,gameboard):
-        return self.getAOETargets(1,unit)            
+        return self.getAOETargets(1,unit,gameboard)            
     
     def abilityEffect(self,unit,target,gameboard):
         for x in target:
@@ -566,7 +596,7 @@ class Plaguelord(gen.Ability):
         return gameboard
         
     def execute(self,unit,gameboard,*args):
-        potentialTargets = self.getTargets(unit,gameboard,args)
+        potentialTargets = self.getTargets(unit,gameboard,*args)
         target = [x for x in potentialTargets if gameboard[x].name == 'Unit']
         gameboard = self.abilityEffect(unit,target,gameboard)
         gameboard[unit].reactionManager.setState('None')
@@ -575,7 +605,7 @@ class Plaguelord(gen.Ability):
         
 class Dyskinesia(gen.Ability):
     name = 'Dyskinesia'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
                     
 class Naal(House):
     name = 'Naal'
@@ -589,7 +619,7 @@ class Naal(House):
     
 class Ranger(gen.Ability):
     name = 'Ranger'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     
     def __init__(self,unitName,player):
         self.unitName = unitName
@@ -602,11 +632,11 @@ class Ranger(gen.Ability):
     
 class Mark(gen.Ability):
     name = 'Mark'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
                 
 class Sniper(gen.Ability):
     name = 'Sniper'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
                 
     def statEffect(self,unitObj):
         unitObj.changePermanentUpgrade('Hit',-2)
@@ -614,11 +644,11 @@ class Sniper(gen.Ability):
     
 class EffectiveCover(gen.Ability):
     name = 'EffectiveCover'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
                 
 class Camouflage(gen.Ability):
     name = 'Camouflage'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     
     def abilityEffect(self,unit,gameboard):
         spaces = [x for x in gameboard[unit].adjacentSpaces() if x not in gameboard]
@@ -629,11 +659,11 @@ class Camouflage(gen.Ability):
         
 class Communications(gen.Ability):
     name = 'Communications'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
                 
 class Vantage(gen.Ability):
     name = 'Vantage'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
                 
 class Spotter(gen.Ability):
     name = 'Spotter'
@@ -671,26 +701,26 @@ class Shadowstrike(gen.Ability):
         
 class CloakAndDagger(gen.Ability):
     name = 'CloakAndDagger'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
             
 class Infiltrate(gen.Ability):
     name = 'Infiltrate'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
             
 class Misdirection(gen.Ability):
     name = 'Misdirection'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
             
 class Stalk(gen.Ability):
     name = 'Stalk'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
                 
 class Smokescreen(gen.Ability):
     name = 'Smokescreen'
     cost = {'Turn':'Special'}
     
     def getTargets(self,unit,gameboard):
-        self.getAOETargets(3,gameboard[unit].location)
+        self.getAOETargets(3,gameboard[unit].location,gameboard)
         
     def abilityEffect(self,unit,target,gameboard):
         spaces = [x for x in self.adjacentSpaces(target) if x not in gameboard]
@@ -700,11 +730,11 @@ class Smokescreen(gen.Ability):
     
 class Eviscerate(gen.Ability):
     name = 'Eviscerate'
-    cost = {'Passive':'Passive'}
+    cost = {'Passive':['Passive']}
                 
 class Sneak(gen.Ability):
     name = 'Sneak'
-    cost = {'Passive':'Passive'}
+    cost = {'Passive':['Passive']}
             
 class Esper(House):
     name = 'Esper'
@@ -718,7 +748,7 @@ class Esper(House):
     
 class Levitation(gen.Ability):
     name = 'Levitation'
-    cost = {'Turn':'Special'}
+    cost = {'Turn':['Special']}
     
     def abilityEffect(self,unit,target,gameboard):
         gameboard[unit].unrestrainedMovement = True
@@ -728,11 +758,11 @@ class Levitation(gen.Ability):
         
 class TimeDilation(gen.Ability):
     name = 'TimeDilation'
-    cost = {'Passive':'Passive'}
+    cost = {'Passive':['Passive']}
                 
 class Portent(gen.Ability):
     name = 'Portent'
-    cost = {'Turn':'Special'}
+    cost = {'Turn':['Special']}
     active = False
     
     def abilityEffect(self,unit,target,gameboard):
@@ -741,7 +771,7 @@ class Portent(gen.Ability):
     
 class PsychicScream(gen.Ability):
     name = 'PsychicScream'
-    cost = {'Turn':'Special'}
+    cost = {'Turn':['Special']}
     active = False
     
     def abilityEffect(self,unit,target,gameboard):
@@ -750,7 +780,7 @@ class PsychicScream(gen.Ability):
     
 class Kineblade(gen.Ability):
     name = 'Kineblade'
-    cost = {'Turn':'Special'}
+    cost = {'Turn':['Special']}
     
     def getTargets(self,unit,gameboard):
         return [x for x in gameboard[unit].adjacentSpaces() if x not in gameboard]
@@ -767,7 +797,7 @@ class KinebladeUnit(gen.Unit):
 
 class Barrier:
     name = 'Barrier'
-    cost = {'Reaction':'Reaction'}
+    cost = {'Reaction':['Reaction']}
     state = ['AddEvasion']
     
     def abilityEffect(self,unit,target,gameboard,combatSteps):
@@ -777,7 +807,7 @@ class Barrier:
         
 class Crumple:
     name = 'Crumple'
-    cost = {'Turn':'Special'}
+    cost = {'Turn':['Special']}
     
     def getTargets(self,unit,gameboard):
         return self.getLOSTargets(unit,gameboard,{'Range':3})
@@ -791,7 +821,7 @@ class Crumple:
         
 class Savant(gen.Unit):
     name = 'Savant'
-    cost = {'Turn':'Special'}
+    cost = {'Turn':['Special']}
     
     def getTargets(self,unit,gameboard):
         return [x for x in gameboard[unit].adjacentSpaces() if x not in gameboard]
@@ -818,11 +848,11 @@ class Accipiter(House):
     
 class Airborne(gen.Ability):
     name = 'Airborne'
-    cost = {'Passive':'Passive'}
+    cost = {'Passive':['Passive']}
                 
 class Disengage(gen.Ability):
     name = 'Disengage'
-    cost = {'Reaction':'Reaction'}
+    cost = {'Reaction':['Reaction']}
     state = ['AfterAttack']
     
     def abilityEffect(self,unit,target,gameboard):
@@ -835,7 +865,7 @@ class Lift(gen.Ability):
     cost = {'Turn':['Special','Movement']}
     
     def abilityEffect(self,unit,target,gameboard):
-        space = random.choice([x for x in self.getAOETargets(6,unit) if x not in gameboard])
+        space = random.choice(self.getAOETargets(6,unit,gameboard))
         gameboard[space] = gameboard[unit]
         del gameboard[unit]
         return gameboard
@@ -877,20 +907,20 @@ class ConcussiveJump(gen.Ability):
     cost = {'Turn':['Special','Movement']}
     
     def abilityEffect(self,unit,target,gameboard):
-        targets = [x for x in self.getAOETargets(1,unit) if x not in gameboard]
+        targets = self.getAOETargets(1,unit,gameboard)
         for x in targets:
             gameboard = self.combat(unit,x,gameboard,{'Wounding':True})
-        space = random.choice([x for x in self.getAOETargets(4,unit) if x not in gameboard])
+        space = random.choice(self.getAOETargets(4,unit,gameboard))
         gameboard[space] = gameboard[unit]
         del gameboard[unit]
-        targets = [x for x in self.getAOETargets(1,space) if x not in gameboard]
+        targets = self.getAOETargets(1,space,gameboard)
         for x in targets:
             gameboard = self.combat(unit,x,gameboard,{'Wounding':True})
         return gameboard
     
 class Flock(gen.Ability):
     name = 'Flock'
-    cost = {'Passive':'Passive'}
+    cost = {'Passive':['Passive']}
                 
 class AssassinPlayer(gen.Player):
     
@@ -908,16 +938,6 @@ class AssassinPlayer(gen.Player):
                       'Common4':AssassinUnit('Common','Common4')}
         for unit in self.units:
             self.units[unit].setClass(self.playerClass,self.playerID,self.captureCost)
-    
-    def availableAbilities(self):
-        if self.level < 5:
-            return {x:self.tier1().get(x) for x in self.tier1() if x not in self.abilities}
-        elif self.level >= 5 and self.level < 9:
-            options = {**self.tier1(),**self.tier2()}
-            return {x:options.get(x) for x in options if x not in self.abilities}
-        else:
-            options = {**self.tier1(),**self.tier2(),**self.tier3()}
-            return {x:options.get(x) for x in options if x not in self.abilities}
         
     def classUpgrades(self,unit):
         if self.units[unit.unitName].eliminatedUnits['Elite'] > 0 or self.units[unit.unitName].eliminatedUnits['Objective'] > 0:
@@ -933,7 +953,7 @@ class AssassinPlayer(gen.Player):
             self.units[unit.unitName].captureCost = 'Movement'
         
     def beginningTurnEffects(self,gameboard):
-        tokens = [x for x in gameboard if type(gameboard[x]).__name__ == 'StealthToken' and self.playerID == gameboard[x].playerID]
+        tokens = [x for x in gameboard if gameboard[x].name == 'StealthToken' and self.playerID == gameboard[x].playerID]
         if 'Camouflage' in self.abilities:
             if random.choice(['Pass','Camouflage']) == 'Camouflage':
                 elite = [x for x in gameboard if gameboard[x].unitType == 'Elite' and gameboard[x].playerID == self.playerID]
@@ -960,11 +980,12 @@ class AssassinPlayer(gen.Player):
             self.units['Elite'].damageBonus = self.damageBonus
         
         if [x for x in gameboard if 'Tectonics' in gameboard[x].abilities]:
-            unit = [x for x in gameboard if 'Tectonics' in gameboard[x].abilities]
-            for x in gameboard[unit].abilities['Tectonics'].locations:
-                if x in gameboard:
-                    if gameboard[x].moveable:
-                        gameboard = self.forcedMovement(self.attunements['Earth']+5, gameboard[x].direction, [], x, gameboard)
+            units = [x for x in gameboard if 'Tectonics' in gameboard[x].abilities]
+            for unit in units:
+                for x in gameboard[unit].abilities['Tectonics'].locations:
+                    if x in gameboard:
+                        if gameboard[x].moveable:
+                            gameboard = self.forcedMovement(self.attunements['Earth']+5, gameboard[x].direction, [], x, gameboard)
         return gameboard
     
     def generateMovementEffect(self,*ability):
@@ -973,13 +994,23 @@ class AssassinPlayer(gen.Player):
             effects['Unrestrained'] = True
         return effects
             
-    def tier1():
-        return {'Quickstep':QuickStep(),'KidneyShot':KidneyShot(),'Backstab':Backstab(),'Shift':Shift(),'Rope':Rope(),\
-                'Sabotage':Sabotage(),'HeightenedSenses':HeightenedSenses(),'Undercover':Undercover(),\
-                'Interrogate':Interrogate(),'Afterimage':Afterimage(),'DeepStrike':DeepStrike(),'Meld':Meld(),'Cripple':Cripple()}
-    def tier2():
-        return {'Counter':AssassinCounter(),'Blur':Blur(),'FamiliarTerritory':FamiliarTerritory(),\
-                'CriticalStrike':CriticalStrike(),'SurpriseAttack':SurpriseAttack(),'BodyDouble':BodyDouble(),\
-                'Shadowstep':Shadowstep(),'BlastTrap':BlastTrap(),'Anonymity':Anonymity(),'Phantom':Phantom()}
-    def tier3():
-        return {'Killshot':Killshot(),'Aversion':Aversion(),'Vendetta':Vendetta(),'Reaper':Reaper()}
+    def tier1(self):
+        return {'Quickstep':QuickStep(self.playerID),'KidneyShot':KidneyShot(self.playerID),'Backstab':Backstab(self.playerID),'Shift':Shift(self.playerID),'Rope':Rope(self.playerID),\
+                'Sabotage':Sabotage(self.playerID),'HeightenedSenses':HeightenedSenses(self.playerID),'Undercover':Undercover(self.playerID),\
+                'Interrogate':Interrogate(self.playerID),'Afterimage':Afterimage(self.playerID),'DeepStrike':DeepStrike(self.playerID),'Meld':Meld(self.playerID),'Cripple':Cripple(self.playerID)}
+    def tier2(self):
+        return {'Counter':AssassinCounter(self.playerID),'Blur':Blur(self.playerID),'FamiliarTerritory':FamiliarTerritory(self.playerID),\
+                'CriticalStrike':CriticalStrike(self.playerID),'SurpriseAttack':SurpriseAttack(self.playerID),'BodyDouble':BodyDouble(self.playerID),\
+                'Shadowstep':Shadowstep(self.playerID),'BlastTrap':BlastTrap(self.playerID),'Anonymity':Anonymity(self.playerID),'Phantom':Phantom(self.playerID)}
+    def tier3(self):
+        return {'Killshot':Killshot(self.playerID),'Aversion':Aversion(self.playerID),'Vendetta':Vendetta(self.playerID),'Reaper':Reaper(self.playerID)}
+
+    def availableAbilities(self):
+        if self.level < 5:
+            return {x:self.tier1().get(x) for x in self.tier1() if x not in self.abilities}
+        elif self.level >= 5 and self.level < 9:
+            options = {**self.tier1(),**self.tier2()}
+            return {x:options.get(x) for x in options if x not in self.abilities}
+        else:
+            options = {**self.tier1(),**self.tier2(),**self.tier3()}
+            return {x:options.get(x) for x in options if x not in self.abilities}

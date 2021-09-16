@@ -29,7 +29,7 @@ class WarriorAttack(gen.Attack):
         return gameboard
         
     def getTargets(self,unit,gameboard,*args):
-        return list(set(self.getLOSTargets(unit,gameboard,args)).intersection(set(self.getAOETargets(gameboard[unit].unitRange,gameboard[unit].location))))
+        return list(set(self.getLOSTargets(unit,gameboard,args)).intersection(set(self.getAOETargets(gameboard[unit].unitRange,gameboard[unit].location,gameboard))))
    
 
 class Block(gen.Ability):
@@ -229,7 +229,7 @@ class Katana:
     def Form1(self,unit,target,gameboard,combatSteps):
         gameboard,combatSteps = self.attackPassiveEffects(unit,target,gameboard,combatSteps)
 
-        target = random.choice([x for x in gameboard[unit].getAOETargets(2,unit) if x not in gameboard])
+        target = random.choice(gameboard[unit].getAOETargets(2,unit,gameboard))
         space = gameboard[target].adjacentSpacesDir()[1]
         if space not in gameboard:
             gameboard[space] = gameboard[unit]
@@ -240,7 +240,7 @@ class Katana:
     def Form2(self,unit,target,gameboard,combatSteps):
         gameboard,combatSteps = self.attackPassiveEffects(unit,target,gameboard,combatSteps)
 
-        target = random.choice([x for x in gameboard[unit].getAOETargets(2,unit) if x not in gameboard])
+        target = random.choice(gameboard[unit].getAOETargets(2,unit,gameboard))
         spaces = gameboard[target].adjacentSpaces()
         newtarget = random.choice([x for x in spaces if x not in gameboard])
         gameboard[newtarget] = gameboard[unit]
@@ -332,7 +332,7 @@ class GreatSword:
     def Form3(self,unit,target,gameboard,combatSteps):
         gameboard,combatSteps = self.attackPassiveEffects(unit,target,gameboard,combatSteps)
 
-        targets = [x for x in self.getAOETargets(1,unit) if x in gameboard]
+        targets = self.getAOETargets(1,unit,gameboard)
         for x in targets:
             gameboard = self.combat(unit,x,gameboard,combatSteps)
         self.increaseForm()
@@ -436,7 +436,7 @@ class ClearingAPath(gen.Ability):
         
 class Contusion(gen.Ability):
     name = 'Contusion'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     #check
         
 class Rage(gen.Ability):
@@ -451,17 +451,17 @@ class Rage(gen.Ability):
         
 class Momentum(gen.Ability):
     name = 'Momentum'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     
     #check
 class HeavyBolts(gen.Ability):
     name = 'HeavyBolts'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     #check
     
 class BladeDance(gen.Ability):
     name = 'BladeDance'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     #check
     
 class PruningBranches(gen.Ability):
@@ -477,7 +477,7 @@ class PruningBranches(gen.Ability):
 
 class Incision(gen.Ability):
     name = 'Incision'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     #check
 
 class Harvest(gen.Ability):
@@ -485,17 +485,17 @@ class Harvest(gen.Ability):
     cost = {'Turn':['Attack']}
     
     def abilityEffect(self,unit,target,gameboard):
-        targets = [x for x in self.getAOETargets(1,unit) if x in gameboard]
+        targets = self.getAOETargets(1,unit,gameboard)
         for x in targets:
             gameboard = self.combat(unit,x,gameboard,{'Wounding':True})
-        targets = [x for x in self.getAOETargets(2,unit) if x in gameboard and x not in [x for x in self.getAOETargets(1,unit)]]
+        targets = [x for x in self.getAOETargets(2,unit,gameboard) if x not in [x for x in self.getAOETargets(1,unit,gameboard)]]
         for x in targets:
             gameboard = self.combat(unit,x,gameboard,{'Wounding':True})
         return gameboard
         
 class Tranquility(gen.Ability):
     name = 'Tranquility'
-    cost = {'Turn':['Passive']}
+    cost = {'Passive':['Passive']}
     #check
     
 class Rebuke(gen.Ability):
@@ -608,17 +608,17 @@ class FleurDeLis(gen.Ability):
             
 class Sunder(gen.Ability):
     name = 'Sunder'
-    cost = {'Turn':'Passive'}
+    cost = {'Passive':['Passive']}
     #check
     
 class Scattershot(gen.Ability):
     name = 'Scattershot'
-    cost = {'Turn':'Passive'}
+    cost = {'Passive':['Passive']}
     #check
 
 class Aegis(gen.Ability):
     name = 'Aegis'
-    cost = {'Turn':'Passive'}
+    cost = {'Passive':['Passive']}
     #check
 
 class WarriorUnit(gen.Unit):
@@ -702,7 +702,7 @@ class WarriorUnit(gen.Unit):
         #
         if self.weaponUpgrades['Warhammer'] >= 2:
             if combatSteps['CalcHit'] == 3 or combatSteps['CalcHit'] == 4:
-                self.combatSteps['Push'] = True
+                combatSteps['Push'] = True
         if self.weaponUpgrades['Spear'] >= 2:
             if combatSteps['CalcHit'] == 1 or combatSteps['CalcHit'] == 4:
                 gameboard[unit].attributeManager.changeAttributes('Reaction',1)
@@ -724,10 +724,11 @@ class WarriorUnit(gen.Unit):
                 combatSteps['AddEvasion'] = combatSteps['AddEvasion'] + gameboard[target].attributeManager.getAttributes('Hit')
         if self.weaponUpgrades['Rapier'] >= 1:
             if combatSteps['CalcEvasion'] == 1 or combatSteps['CalcEvasion'] == 2:
-                combatSteps['Counter'] == True
+                combatSteps['Counter'] = True
         if self.weaponUpgrades['Greatsword'] >= 2:
             if combatSteps['CalcEvasion'] == 1:
-                gameboard = gameboard[target].abilities['Block'].abilityEffect(unit,target,gameboard,combatSteps)
+                if 'Block' in gameboard[target].abilities:
+                    gameboard = gameboard[target].abilities['Block'].abilityEffect(unit,target,gameboard,combatSteps)
         return gameboard,combatSteps
     
     def movementEffects(self,unit,target,gameboard):
@@ -778,6 +779,16 @@ class WarriorPlayer(gen.Player):
     # need both warriorattack and attack to differentiate a normal attack and a form attack
     # both need to access passives
      
+
+    def levelUp(self):
+        if self.level < 10:
+            self.level = self.level + 1
+            for unit in self.units.values():
+                unit.levelManager.level = self.level
+        if self.level < 5:
+            for unit in self.units:
+                weapon = random.choice(['Warhammer','Spear','Katana','Rapier','Axe','Greatsword','Bow'])
+                self.units[unit].weaponUpgrades[weapon] = self.units[unit].weaponUpgrades[weapon] + 1
 
                 
 #    def beginningTurnEffects(self,gameboard):
