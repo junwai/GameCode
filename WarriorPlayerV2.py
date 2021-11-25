@@ -305,7 +305,7 @@ class Axe:
 
         if gameboard[unit].weaponUpgrades['Axe'] == 3:
             combatSteps['AddDamage'] = combatSteps['AddDamage'] + combatSteps['AddEvasion']
-        damage = gameboard[target].levelManager.classAttributes()['Movement'] - gameboard[target].attributeManager.getAttribute('Movement')
+        damage = gameboard[target].levelManager.classAttributes()['Movement'] - gameboard[target].attributeManager.getAttributes('Movement')
         combatSteps['AddDamage'] = combatSteps['AddDamage'] + damage
         self.increaseForm()
         return self.combat(unit,target,gameboard,combatSteps)
@@ -447,7 +447,7 @@ class Rage(gen.Ability):
     
     def abilityEffect(self,unit,target,gameboard,damage):
         self.damage = self.damage + 1
-        return gameboard, damage
+        return gameboard, damage, unit
         
 class Momentum(gen.Ability):
     name = 'Momentum'
@@ -685,7 +685,7 @@ class WarriorUnit(gen.Unit):
             if [y for y in [x for x in self.adjacentSpaces(self.location) if x in gameboard] if 'Lethargy' in gameboard[y].abilities] and 'Wounding' in combatSteps['AttackMods']:
                 combatSteps['AttackMods'].remove('Wounding')
         if self.location == target:
-            if [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]:
+            if [x for x in gameboard if type(x) is tuple and 'HoarFrost' in gameboard[x].abilities]:
                 elites = [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]
                 for x in elites:
                     if gameboard[x].getDistance(target) <= gameboard[x].attunement['Water']:

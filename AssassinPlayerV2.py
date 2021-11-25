@@ -32,7 +32,7 @@ class StealthToken(gen.GeneralUse):
     def stealthTokenEffect(self,unit,gameboard):
         if self.blastTrap:
             if random.randint(1,6) > gameboard[unit].attributeManager.getAttributes('Evasion'):
-                self.dealDamage(self.location,unit,gameboard,5)
+                self.dealIndirectDamage(self.location,unit,gameboard,5,self.playerID)
         return gameboard
 
 class PlaceStealthToken(gen.Ability):
@@ -85,7 +85,6 @@ class AssassinAttack(gen.Ability):
                 spaces = self.getAOETargets(1,unit,gameboard)
         else:
             spaces = list(set(self.getLOSTargets(unit,gameboard,args)).intersection(set(self.getAOETargets(gameboard[unit].unitRange,gameboard[unit].location,gameboard))))
-    
         return spaces    
 
 class AssassinPurposefulDodge(gen.PurposefulDodge):
@@ -116,7 +115,7 @@ class AssassinUnit(gen.Unit):
         self.unitAttributes = self.levelManager.getAttributes()
         self.attributeManager = gen.AttributeManager(self.unitAttributes)
         self.captureCost = captureCost
-        self.abilities = {'Pass':gen.Pass(playerID),'Attack':AssassinAttack(playerID), 'Movement':gen.Movement(playerID), 'Reorient':gen.Reorient(playerID), 'Perception':gen.Perception(playerID),
+        self.abilities = {'Attack':AssassinAttack(playerID), 'Movement':gen.Movement(playerID), 'Reorient':gen.Reorient(playerID), 'Perception':gen.Perception(playerID),
                  'AccurateStrike': gen.AccurateStrike(playerID),'Avoid':AssassinAvoid(playerID),'PurposefulDodge':AssassinPurposefulDodge(playerID),'RedirectedStrike':gen.RedirectedStrike(playerID),
                  'Efficiency':Efficiency(playerID),'Notoriety':Notoriety(playerID),
                  'Stealth':Stealth(playerID),'Jaunt':Jaunt(playerID)}
@@ -136,7 +135,10 @@ class AssassinUnit(gen.Unit):
         if gameboard[target].unitType in ['Elite','Common']:
             notoriety = gameboard[target].levelManager.level - self.levelManager.level
             if notoriety > 0:
-                mods['AddHit'] = mods['AddHit'] + notoriety
+                if 'AddHit' in mods:
+                    mods['AddHit'] = mods['AddHit'] + notoriety
+                else:
+                    mods['AddHit'] = notoriety
         return mods
     
     def rollModifiers(self,unit,target,gameboard,combatRolls):
@@ -161,7 +163,7 @@ class AssassinUnit(gen.Unit):
     def passiveMods(self,unit,target,gameboard,combatSteps):
         if self.location == unit and target in gameboard:
             if 'KidneyShot' in self.abilities and gameboard[target].name == 'Unit':
-                if self.location in [gameboard[target].adjacentSpacesDir()[3],gameboard[target].adjacentSpacesDir()[5]]:
+                if self.location in [gameboard[target].adjacentSpacesDir({'Location':self.location})[3],gameboard[target].adjacentSpacesDir({'Location':self.location})[5]]:
                     combatSteps['AddDamage'] = combatSteps['AddDamage'] + 1
             if 'BackStab' in self.abilities:
                 if self.location in [gameboard[target].adjacentSpacesDir()[3],gameboard[target].adjacentSpacesDir()[5]]:
@@ -171,12 +173,13 @@ class AssassinUnit(gen.Unit):
                     combatSteps['AddHit'] = combatSteps['AddHit'] + 3
                     combatSteps['AddDamage'] = combatSteps['AddDamage'] + 2
             if 'Killshot' in self.abilities:
-                if gameboard[target].attributeManager.getAttribute('Health')/2 < self.attributeManager.getAttribute('Damage') + self.damageBonus:
-                    combatSteps['AttackMods'].append('Wounding')
+                if gameboard[target].attributeManager.getAttributes('Health')/2 < self.attributeManager.getAttributes('Damage') + self.damageBonus:
+                    combatSteps['AttackMods']['Wounding'] = 'True'
             if 'Phantom' in self.abilities and 'Evasion' in combatSteps['CombatResult'] and self.unitType == 'Elite':
                 self.damageBonus = self.damageBonus + 1
             if [y for y in [x for x in self.adjacentSpaces(self.location) if x in gameboard] if 'Lethargy' in gameboard[y].abilities and gameboard[y].playerID != gameboard[unit].playerID] and 'Wounding' in combatSteps['AttackMods']:
-                combatSteps['AttackMods'].remove('Wounding')
+                if 'Wounding' in combatSteps['AttackMods']:
+                    del combatSteps['AttackMods']['Wounding']
             if [y for y in [x for x in self.adjacentSpaces(self.location) if x in gameboard] if 'Dyskinesia' in gameboard[y].abilities and gameboard[y].playerID != gameboard[unit].playerID]:
                 disadv = random.randint(1,6)
                 if combatSteps['CalcHit'] > disadv:
@@ -212,7 +215,7 @@ class AssassinUnit(gen.Unit):
                 combatSteps['AddEvasion'] = combatSteps['AddEvasion'] + len([x for x in self.adjacentSpaces(self.location) if x in gameboard and gameboard[x].name == 'StealthToken'])
             if 'Wounding' in combatSteps['AttackMods']:
                 if 'Blur' in self.abilities:
-                    combatSteps['AttackMods'].remove('Wounding')
+                    del combatSteps['AttackMods']['Wounding']
                     combatSteps['CalcHit'] = 0
                     combatSteps['AddHit'] = 7
             if 'Anonymity' in self.abilities:
@@ -226,12 +229,31 @@ class AssassinUnit(gen.Unit):
                 if self.abilities['Portent'].active:
                     combatSteps['CalcHit'] = 2
                     self.abilities['Portent'].active = False
-            if [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]:
+            if [x for x in gameboard if type(x) is tuple and 'HoarFrost' in gameboard[x].abilities]:
                 elites = [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]
                 for x in elites:
                     if gameboard[x].getDistance(target) <= gameboard[x].attunement['Water']:
                         combatSteps['AddEvasion'] = combatSteps['AddEvasion'] - 2        
         return gameboard,combatSteps
+    
+    def indirectPassiveMods(self,source,target,gameboard,combatSteps):
+        if 'Meld' in self.abilities:
+            combatSteps['AddEvasion'] = combatSteps['AddEvasion'] + len([x for x in self.adjacentSpaces(self.location) if x in gameboard and gameboard[x].name == 'StealthToken'])
+        if 'Wounding' in combatSteps['AttackMods']:
+            if 'Blur' in self.abilities:
+                combatSteps['AttackMods'].remove('Wounding')
+                combatSteps['CalcHit'] = 0
+                combatSteps['AddHit'] = 7
+        if 'Portent' in self.abilities:
+            if self.abilities['Portent'].active:
+                combatSteps['CalcHit'] = 2
+                self.abilities['Portent'].active = False
+        if [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]:
+            elites = [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]
+            for x in elites:
+                if gameboard[x].getDistance(target) <= gameboard[x].attunement['Water']:
+                    combatSteps['AddEvasion'] = combatSteps['AddEvasion'] - 2    
+        return gameboard, combatSteps
     
     def movementEffects(self,unit,target,gameboard):
         if 'ShadowStep' in self.abilities:
@@ -343,7 +365,7 @@ class Sabotage(gen.Ability):
     name = 'Sabotage'
     cost = {'Turn':['Attack']}
     
-    def getTargets(self,unit,gameboard,*args):
+    def getTargets(self,unit,gameboard):
         return [x for x in self.getMeleeTargets(unit,gameboard) if gameboard[x].name in ['Obstacle','Objective']]
         
     def abilityEffect(self,unit,target,gameboard):
@@ -509,8 +531,9 @@ class Vendetta(gen.Ability):
     
     def abilityEffect(self,unit,target,gameboard,damage):
         if damage >= 4:
-            self.attributeManager.setBonusAttributes('Attack',1)
-        return gameboard, damage
+            if unit in gameboard:
+                gameboard[unit].attributeManager.setBonusAttributes('Attack',1)
+        return gameboard, damage, unit
         
 class Reaper(gen.Ability):
     name = 'Reaper'
@@ -543,7 +566,7 @@ class PoisonedDagger(gen.Ability):
     
     def abilityEffect(self,unit,target,gameboard,combatSteps):
         combatSteps['CombatResult'] = 'Hit'
-        combatSteps['Damage'] = gameboard[unit].attributeManager.getAttribute['Damage']
+        combatSteps['Damage'] = gameboard[unit].attributeManager.getAttributes['Damage']
         combatSteps['AddDamage'] = 0
         combatSteps['AttackMods'] = combatSteps['AttackMods'] + ['Wounding']
         return gameboard, combatSteps

@@ -766,7 +766,8 @@ class Grenade(gen.Ability):
             gameboard = self.combat(unit,target,gameboard,{'Wounding':True,'Damage':2})
         outertargets = [x for x in self.getAOETargets(1,target,gameboard) if x in gameboard]
         for x in outertargets:
-            gameboard = self.combat(unit,target,gameboard,{'Wounding':True,'Damage':1})
+            if x in gameboard:
+                gameboard = self.dealIndirectDamage(target,x,gameboard,1,self.playerID,{'Wounding':True})
         return gameboard
         
 class Sidecar(gen.Ability):
@@ -953,7 +954,7 @@ class EngineerUnit(gen.Unit):
         self.maxHealth = self.currentAttributes['Health']
         self.attributeManager = gen.AttributeManager(self.currentAttributes)
         self.captureCost = captureCost
-        self.abilities = {'Pass':gen.Pass(playerID),'Attack':gen.Attack(playerID), 'Movement':gen.Movement(playerID), 'Reorient':gen.Reorient(playerID), 'Perception':gen.Perception(playerID),
+        self.abilities = {'Attack':gen.Attack(playerID), 'Movement':gen.Movement(playerID), 'Reorient':gen.Reorient(playerID), 'Perception':gen.Perception(playerID),
                  'AccurateStrike': gen.AccurateStrike(playerID),'Avoid':gen.Avoid(playerID),'PurposefulDodge':gen.PurposefulDodge(playerID),'RedirectedStrike':gen.RedirectedStrike(playerID),
                  'Build': Build(playerID), 'TeleportModule':TeleportModule(playerID),'MaterialRecall':MaterialRecall(playerID),'ManualOverride':ManualOverride(playerID)}
         for x in self.abilities:
@@ -962,7 +963,7 @@ class EngineerUnit(gen.Unit):
         
     def passiveMods(self,unit,target,gameboard,combatSteps):        
         
-        elite = [x for x in gameboard if gameboard[x].unitType == 'Elite' and gameboard[x].playerID == gameboard[x].playerID]
+        elite = [x for x in gameboard if type(x) is tuple and gameboard[x].unitType == 'Elite' and gameboard[x].playerID == gameboard[x].playerID]
         if elite:
             elite = elite[0]
             gameboard[elite].location = elite
@@ -983,7 +984,7 @@ class EngineerUnit(gen.Unit):
                                 combatSteps['AddHit'] = combatSteps['AddHit'] + 2
                 if 'Armory' in gameboard[elite].abilities:
                     am = 0
-                    armory = [x for x in gameboard if gameboard[x].name == 'Armory']
+                    armory = [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'Armory']
                     if armory:
                         for x in armory:
                             if elite in self.getAOETargets(gameboard[x].auraRange,x,gameboard):
@@ -994,7 +995,7 @@ class EngineerUnit(gen.Unit):
                                 break
 
         if self.location == target:
-            if [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]:
+            if [x for x in gameboard if type(x) is tuple and 'HoarFrost' in gameboard[x].abilities]:
                 elites = [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]
                 for x in elites:
                     if gameboard[x].getDistance(target) <= gameboard[x].attunement['Water']:
@@ -1101,8 +1102,8 @@ class EngineerPlayer(gen.Player):
     def beginningTurnEffects(self,gameboard):
         self.Obstacles = [x for x in [Wall('Wall',self.playerID),Turret('Turret',self.playerID,2),Relay('Relay',self.playerID),Medbay('Medbay',self.playerID),
                                  Armory('Armory',self.playerID),Bunker('Bunker',self.playerID),EMPTower('EMPTower',self.playerID),RadarTower('RadarTower',self.playerID)]]
-        commons = [x for x in gameboard if gameboard[x].unitType == 'Common' and gameboard[x].playerID == self.playerID]
-        elite = [x for x in gameboard if gameboard[x].unitType == 'Elite' and gameboard[x].playerID == self.playerID]
+        commons = [x for x in gameboard if type(x) is tuple and gameboard[x].unitType == 'Common' and gameboard[x].playerID == self.playerID]
+        elite = [x for x in gameboard if type(x) is tuple and gameboard[x].unitType == 'Elite' and gameboard[x].playerID == self.playerID]
         if elite:
             elite = elite[0]
         
@@ -1115,7 +1116,7 @@ class EngineerPlayer(gen.Player):
                 self.units['Elite'].unusedBlueprints = self.units['Elite'].unusedBlueprints + gameboard[x].unusedBlueprints
         
         # if unit is eliminated, remove blueprints and return to elite
-        gbunits = [gameboard[x].unitName for x in gameboard if gameboard[x].unitType == 'Common' and gameboard[x].playerID == self.playerID]
+        gbunits = [gameboard[x].unitName for x in gameboard if type(x) is tuple and gameboard[x].unitType == 'Common' and gameboard[x].playerID == self.playerID]
         
         for x in [a for a in self.units if a not in gbunits]:
             for bp in self.units[x].unitBlueprints:
@@ -1130,7 +1131,7 @@ class EngineerPlayer(gen.Player):
         return gameboard
     
     def endTurnEffects(self,gameboard):
-        units = [x for x in gameboard if gameboard[x].playerID == self.playerID and gameboard[x].unitType == 'Common']
+        units = [x for x in gameboard if type(x) is tuple and gameboard[x].playerID == self.playerID and gameboard[x].unitType == 'Common']
         if [x for x in units if 'Biotechnology' in gameboard[x].unitBlueprints]:
             for x in [x for x in units if 'Biotechnology' in gameboard[x].unitBlueprints]:
                 if 'BlueprintUpgrade' not in gameboard[x].abilities:
@@ -1142,8 +1143,8 @@ class EngineerPlayer(gen.Player):
                     gameboard[x].attributeManager.currentAttributes['Health'] = gameboard[x].maxHealth
 
         if 'Medbay' in self.units['Elite'].abilities:
-            elite = [x for x in gameboard if gameboard[x].name == 'Unit' and gameboard[x].unitName == 'Elite' and gameboard[x].playerID == self.playerID]
-            medbay = [x for x in gameboard if gameboard[x].name == 'Medbay' and gameboard[x].playerID == self.playerID]
+            elite = [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'Unit' and gameboard[x].unitName == 'Elite' and gameboard[x].playerID == self.playerID]
+            medbay = [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'Medbay' and gameboard[x].playerID == self.playerID]
             if elite and medbay:
                 self.units['Elite'].location = elite[0]
                 for mb in medbay:
@@ -1155,13 +1156,12 @@ class EngineerPlayer(gen.Player):
     
     def respawnUnits(self,gameboard):
         # finds units not in gameboard but in player unit list
-        respawnPoints = [b for c in [self.adjacentSpaces(a) for a in [x for x in gameboard if gameboard[x].name == 'Respawn' and gameboard[x].playerID == self.playerID]] for b in c]
+        respawnPoints = [b for c in [self.adjacentSpaces(a) for a in [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'Respawn' and gameboard[x].playerID == self.playerID]] for b in c]
         respawnPoints = [x for x in respawnPoints if x in self.boardLocations and x not in gameboard]
-        gameboardUnits = [gameboard[x].unitName for x in gameboard if gameboard[x].playerID == self.playerID and gameboard[x].unitName == 'Elite']
+        gameboardUnits = [gameboard[x].unitName for x in gameboard if type(x) is tuple and gameboard[x].playerID == self.playerID and gameboard[x].unitName == 'Elite']
         units = []
         if 'Elite' not in gameboardUnits:
             units = ['Elite']
-
 
         if self.level > 1:
             if respawnPoints:

@@ -35,11 +35,11 @@ class Game:
     turnCounter = 0
     directions = ['n','ne','se','s','sw','nw']
         
-    gameboard = {(1,5):gen.Objective((1,5),'Player2'), (4,5):gen.Respawn((4,5),'Player2'), (7,5):gen.Respawn((7,5),'Player3'), (10,5):gen.Objective((10,5),'Player3'),
-                (1,11):gen.Respawn((1,11),'Player3'), (4,11):gen.Objective((4,11),'None'), (7,11):gen.Respawn((7,11),'Player1'), (10,11):gen.Objective((10,11),'Player1'), (13,11):gen.Respawn((13,11),'Player4'), (15,10):gen.Objective((15,10),'Player4'),
-                (7,17):gen.Respawn((7,17),'Player1'), (10,17):gen.Objective((10,17),'None'), (13,17):gen.Respawn((13,17),'Player1'), (15,17):gen.Objective((15,17),'None'),
+    gameboard = {(1,5):gen.Objective((1,5),'Player2','Objective1'), (4,5):gen.Respawn((4,5),'Player2'), (7,5):gen.Respawn((7,5),'Player3'), (10,5):gen.Objective((10,5),'Player3','Objective2'),
+                (1,11):gen.Respawn((1,11),'Player3'), (4,11):gen.Objective((4,11),'None','Objective3'), (7,11):gen.Respawn((7,11),'Player1'), (10,11):gen.Objective((10,11),'Player1','Objective4'), (13,11):gen.Respawn((13,11),'Player4'), 
+                (15,10):gen.Objective((15,10),'Player4','Objective5'), (7,17):gen.Respawn((7,17),'Player1'), (10,17):gen.Objective((10,17),'None','Objective6'), (13,17):gen.Respawn((13,17),'Player1'), (15,17):gen.Objective((15,17),'None','Objective7'),
                 'EliminatedUnits':gen.EliminatedUnitManager()}
-                     
+    playerConv = {'Player1':0,'Player2':1,'Player3':2,'Player4':3}
         
     def __init__(self,players):
         self.players = players
@@ -90,10 +90,20 @@ class Game:
                                 # 1 is the left mouse button, 2 is middle, 3 is right.
                                 if event.button == 1:
                                     # `event.pos` is the mouse position.
-                                    if button1.collidepoint(event.pos):       
+                                    if button1.collidepoint(event.pos):
                                         self.gameboard = player.respawnUnits(self.gameboard)
                                         self.currentPlayer = player
                                         self.gameboard, self.players = player.turn(self.gameboard,self.players)
+                                        
+                                        # Gain experience and reset eliminated units
+                                        
+                                        for elimUnit in self.gameboard['EliminatedUnits'].eliminatedUnits:
+                                            elimObj = list(self.gameboard['EliminatedUnits'].eliminatedUnits[elimUnit].values())[0]
+                                            if elimObj.name == 'Unit':
+                                                self.players[self.playerConv[elimObj.playerID]].units[elimUnit] = elimObj
+                                                
+                                        player.experiencePoints = player.experiencePoints + len(self.gameboard['EliminatedUnits'].eliminatedUnits)
+                                        self.gameboard['EliminatedUnits'].eliminatedUnits = {}
                                         buttonpress = True
                         if buttonpress:
                             break
@@ -163,10 +173,7 @@ class Game:
     def endRound(self):
         for player in self.players:
             self.gameboard = player.manageExp(self.gameboard)
-            player.gainVictoryPoints(len([x for x in self.gameboard if self.gameboard[x].name == 'Objective' and self.gameboard[x].playerID == player.playerID]))
-
-
-
+            player.gainVictoryPoints(len([x for x in self.gameboard if type(x) is tuple and self.gameboard[x].name == 'Objective' and self.gameboard[x].playerID == player.playerID]))
 
 # instantiate game
 game = Game([WarriorPlayerV2.WarriorPlayer('Warrior','Player1'),AssassinPlayerV2.AssassinPlayer('Assassin','Player2'), \
