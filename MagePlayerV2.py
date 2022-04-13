@@ -140,7 +140,7 @@ class MageUnit(gen.Unit):
                 for x in elites:
                     if gameboard[x].getDistance(target) <= gameboard[x].attunement['Water']:
                         combatSteps['AddEvasion'] = combatSteps['AddEvasion'] - 2
-            if [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]:
+            if [x for x in gameboard if type(x) is tuple and 'HoarFrost' in gameboard[x].abilities]:
                 elites = [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]
                 for x in elites:
                     if gameboard[x].getDistance(target) <= gameboard[x].attunement['Water']:
@@ -158,10 +158,11 @@ class MageUnit(gen.Unit):
                 damage = 2 - gameboard[target].attributeManager.getAttributes('Armor')
                 if damage > 0:
                     self.dealDamage(unit,target,gameboard,2)
-                    newSpace = random.choice([x for x in gameboard[target].adjacentSpaces(target) if x not in gameboard])
-                    gameboard[target].location = newSpace
-                    gameboard[newSpace] = gameboard[target]
-                    del gameboard[target]
+                    if target in gameboard:
+                        newSpace = random.choice([x for x in self.adjacentSpaces(target) if x not in gameboard])
+                        gameboard[target].location = newSpace
+                        gameboard[newSpace] = gameboard[target]
+                        del gameboard[target]
         if 'StepsOfCinder' in gameboard[unit].abilities:
             if gameboard[unit].abilities['StepsOfCinder'].active > 0:        
                 for x in self.adjacentSpaces(target):
@@ -233,7 +234,7 @@ class Whirlwind(gen.Ability):
     cost = {'Passive':['Passive']}
 
     def abilityEffect(self,gameboard,playerID):
-        units = [x for x in gameboard if gameboard[x].unitType == 'Common' and gameboard[x].playerID == playerID]
+        units = [x for x in gameboard if type(x) is tuple and gameboard[x].unitType == 'Common' and gameboard[x].playerID == playerID]
         for x in units:
             gameboard[x].abilities['Movement'].abilityEffect(x,[],gameboard,{'Direction':random.choice(self.directions),'Cost':'Passive','Distance':gameboard[x].attunements['Air'] + 2})
         return gameboard
@@ -249,7 +250,7 @@ class Zephyr(gen.Ability):
     cost = {'Turn':['Special']}
     
     def getTargets(self,unit,gameboard):
-        return [x for x in gameboard if gameboard[x].unitType == 'Common' and gameboard[x].playerID == gameboard[unit].playerID]
+        return [x for x in gameboard if type(x) is tuple and gameboard[x].unitType == 'Common' and gameboard[x].playerID == gameboard[unit].playerID]
     
     def abilityEffect(self,unit,target,gameboard):
         tempUnit = gameboard[target]
@@ -283,7 +284,8 @@ class Prismata(gen.Ability):
     
     def abilityEffect(self,unit,target,gameboard,damage):
         for x in gameboard[unit].adjacentSpaces(unit):
-            gameboard = self.combat(unit,x,gameboard,{'Wounding':True,'Damage':damage})
+            if x in gameboard:
+                gameboard = self.dealIndirectDamage(unit,x,gameboard,damage,gameboard[unit].playerID,{'Wounding':True})
         return gameboard,damage,unit
     
 class LightningStrike(gen.Ability):
@@ -319,7 +321,7 @@ class FlashFlood(gen.Ability):
     cost = {'Turn':['Attack']}
     
     def getTargets(self,unit,gameboard):
-        return [x for x in gameboard[unit].adjacentSpaces(unit) if x in gameboard and gameboard[x].name == 'Unit']
+        return [x for x in gameboard[unit].adjacentSpaces(unit) if type(x) is tuple and x in gameboard and gameboard[x].name == 'Unit']
 
     def abilityEffect(self,unit,target,gameboard):
         commons = [x for x in gameboard if gameboard[x].unitType == 'Common' and gameboard[x].playerID == gameboard[unit].playerID]
@@ -470,7 +472,7 @@ class TraceFlames(gen.Ability):
     cost = {'Turn':['Special']}
     
     def getTargets(self,unit,gameboard):
-        return [x for x in gameboard if gameboard[x].unitType == 'Common' and gameboard[x].playerID == gameboard[unit].playerID]
+        return [x for x in gameboard if type(x) is tuple and gameboard[x].unitType == 'Common' and gameboard[x].playerID == gameboard[unit].playerID]
     
     def abilityEffect(self,unit,target,gameboard):
         tempUnit = gameboard[target]
@@ -663,7 +665,7 @@ class Gleization(gen.Ability):
         commons = [x for x in gameboard if type(x) is tuple and gameboard[x].playerID == gameboard[unit].playerID and gameboard[x].unitType == 'Common']
         for x in commons:
             maxHealth = gameboard[x].levelManager.classAttributes()['Health'] + gameboard[x].attributeManager.permBonusAttr['Health']
-            gameboard[x].attributeManager.bonusAttributes['Armor'] = gameboard[x].attributeManager.bonusAttributes['Armor'] + maxHealth - gameboard[x].attributeManager.getAttributes['Health']
+            gameboard[x].attributeManager.bonusAttributes['Armor'] = gameboard[x].attributeManager.bonusAttributes['Armor'] + maxHealth - gameboard[x].attributeManager.getAttributes('Health')
         return gameboard
     
 class Shockwave(gen.Ability):
@@ -740,9 +742,10 @@ class AetherBeam(gen.Ability):
         dirstr = self.faceDirection(gameboard[unit].direction,direction)
         targets = [gameboard[unit].adjacentSpacesDir({'Location':unit})[direction]]
         for x in range(0,2):
-            targets = targets + self.adjacentSpacesDir({'Location':targets[x],'Direction':dirstr})[direction]
+            targets = targets + [self.adjacentSpacesDir({'Location':targets[x],'Direction':dirstr})[direction]]
         for x in targets:
-            gameboard = self.combat(unit,x,gameboard,{'Damage':1+gameboard[unit].attunements['Mana']})
+            if x in gameboard:
+                gameboard = self.combat(unit,x,gameboard,1+gameboard[unit].attunements['Mana'],gameboard[unit].playerID)
         return gameboard
         
 class Channel(gen.Ability):
@@ -871,7 +874,7 @@ class Singularity(gen.Ability):
     def abilityEffect(self,unit,target,gameboard):
         potentialTargets = [x for x in self.getAOETargets(3,unit,gameboard) if gameboard[x].name == 'Objective']
         if potentialTargets: 
-            target = random.choice()
+            target = random.choice(potentialTargets)
             gameboard[target].playerID = 'None'
             gameboard[target].health = 0
         return gameboard
@@ -982,7 +985,7 @@ class MagePlayer(gen.Player):
     def beginningTurnEffects(self,gameboard):
         
         # find gameboard units, update player attunement, update gameboard unit abilities and attunement
-        units = [x for x in gameboard if gameboard[x].name == 'Unit' and gameboard[x].playerID == self.playerID]
+        units = [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'Unit' and gameboard[x].playerID == self.playerID]
         baseClassAbilities = self.Attune()
         for unit in units:
             gameboard[unit].attunements = self.attunements

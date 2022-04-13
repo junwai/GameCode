@@ -15,6 +15,8 @@ class StealthToken(gen.GeneralUse):
     
     # this is the token object
     name = 'StealthToken'
+    unitName = 'StealthToken'
+    unitType = 'StealthToken'
     playerClass = 'None'
     attributeManager = gen.AttributeManager({'Health':0,'Attack':0,'Movement':0,'Reaction':0,'Special':0,'Hit':0,'Evasion':0,'Armor':0})
     reactionManager = gen.ReactionManager()
@@ -384,7 +386,7 @@ class Undercover(gen.Ability):
     cost = {'Turn':['Movement']}
     
     def getTargets(self,unit,gameboard):
-        potentialTargets = [x for x in gameboard if gameboard[x].name == 'StealthToken']
+        potentialTargets = [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'StealthToken']
         if potentialTargets:
             return potentialTargets
         else:
@@ -394,9 +396,11 @@ class Undercover(gen.Ability):
         if unit == target:
             return gameboard
         else:
-            moveStealthToken = random.choice([x for x in self.adjacentSpaces(target) if x not in gameboard])
-            gameboard[moveStealthToken] = gameboard[target]
-            del gameboard[target]
+            spaces = [x for x in self.adjacentSpaces(target) if x not in gameboard]
+            if spaces:
+                moveStealthToken = random.choice(spaces)
+                gameboard[moveStealthToken] = gameboard[target]
+                del gameboard[target]
             return gameboard
         
 class Interrogate(gen.Ability):
@@ -424,7 +428,7 @@ class DeepStrike(gen.Ability):
     cost = {'Turn':['Movement']}
     
     def getTargets(self,unit,gameboard):
-        spaces = [x for x in gameboard if gameboard[x].name == 'Respawn' or gameboard[x].name == 'Objective']
+        spaces = [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'Respawn' or gameboard[x].name == 'Objective']
         return [x for y in [self.adjacentSpaces(x) for x in spaces] for x in y if x in gameboard and gameboard[x] == 'StealthToken']            
     
     def abilityEffect(self,unit,target,gameboard):  
@@ -483,7 +487,7 @@ class BodyDouble(gen.Ability):
     use = 'Elite'
     
     def getTargets(self,unit,gameboard):
-        return [x for x in gameboard if gameboard[x].unitType == 'Common' and gameboard[x].playerID == gameboard[unit].playerID]
+        return [x for x in gameboard if type(x) is tuple and gameboard[x].unitType == 'Common' and gameboard[x].playerID == gameboard[unit].playerID]
     
     def abilityEffect(self,unit,target,gameboard,*combatSteps):
         temp = gameboard[unit]
@@ -976,10 +980,10 @@ class AssassinPlayer(gen.Player):
             self.units[unit.unitName].captureCost = 'Movement'
         
     def beginningTurnEffects(self,gameboard):
-        tokens = [x for x in gameboard if gameboard[x].name == 'StealthToken' and self.playerID == gameboard[x].playerID]
+        tokens = [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'StealthToken' and self.playerID == gameboard[x].playerID]
         if 'Camouflage' in self.abilities:
             if random.choice(['Pass','Camouflage']) == 'Camouflage':
-                elite = [x for x in gameboard if gameboard[x].unitType == 'Elite' and gameboard[x].playerID == self.playerID]
+                elite = [x for x in gameboard if type(x) is tuple and gameboard[x].unitType == 'Elite' and gameboard[x].playerID == self.playerID]
                 self.abilities['Camouflage'].abilityEffect(elite[0],gameboard)
         if 'CloakAndDagger' in self.abilities:
             for x in random.sample(tokens,3):
@@ -992,7 +996,7 @@ class AssassinPlayer(gen.Player):
         return gameboard
     
     def endTurnEffects(self,gameboard):
-        units = [x for x in gameboard if gameboard[x].playerID == self.playerID and gameboard[x].unitType in ['Common','Elite']]
+        units = [x for x in gameboard if type(x) is tuple and gameboard[x].playerID == self.playerID and gameboard[x].unitType in ['Common','Elite']]
         commons = [x for x in units if gameboard[x].unitType == 'Common']
         elite = [x for x in units if gameboard[x].unitType == 'Elite']
         for x in commons:
@@ -1001,9 +1005,9 @@ class AssassinPlayer(gen.Player):
         for x in elite:
             gameboard[x].damageBonus = self.damageBonus
             self.units['Elite'].damageBonus = self.damageBonus
-        
-        if [x for x in gameboard if 'Tectonics' in gameboard[x].abilities]:
-            units = [x for x in gameboard if 'Tectonics' in gameboard[x].abilities]
+
+        units = [x for x in gameboard if type(x) is tuple and 'Tectonics' in gameboard[x].abilities]        
+        if units:
             for unit in units:
                 for x in gameboard[unit].abilities['Tectonics'].locations:
                     if x in gameboard:
