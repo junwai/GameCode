@@ -226,13 +226,16 @@ class GeneralUse:
     
     def adjacentSpacesDir(self,*args):
         #[1,2,3,4,5,6]
-        x = self.location[0]
-        y = self.location[1]
         if args:
             if 'Location' in args[0]:
                 x = args[0]['Location'][0]
                 y = args[0]['Location'][1]
-
+            else:
+                x = self.location[0]
+                y = self.location[1]
+        else:
+            x = self.location[0]
+            y = self.location[1]            
             
         switch = {
             'n': {1:(x,y+1),2:(x+1,y+1),3:(x+1,y),4:(x,y-1),5:(x-1,y-1),6:(x-1,y)},
@@ -277,49 +280,130 @@ class GeneralUse:
         }
         return switch.get(unit)
     
+    
     def dealDamage(self,unit,target,gameboard,damage,*args):
+        # deal damage coming from unit sources
+        
+        if target in gameboard:
+            gameboard['History']['target'].append(gameboard[target])
+            
+        if args:
+            args = args[0]
         if target not in gameboard:
             return gameboard
         if gameboard[target].name == 'Objective' or gameboard[target].name == 'Obstacle':
             damage = damage - gameboard[target].getArmor(gameboard)
         
         reaction = gameboard[unit].reactionManager.checkReaction(target,unit,gameboard,['GiveDamage'])
-        gameboard, damage = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,damage)
+        if reaction != 'Pass':
+            gameboard, damage = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,damage)
+        
         if gameboard[target].name == 'Unit':
             reaction = gameboard[target].reactionManager.checkReaction(target,unit,gameboard,['TakeDamage'])
-            if reaction:
-                gameboard, damage = gameboard[target].abilities[reaction].abilityEffect(target,unit,gameboard,damage)
-        
-        if 'AetherPulse' in args and damage > 0:
-            gameboard[unit].abilities['AetherPulse'].recoverHealth(unit,gameboard)
-        
-        if 'Aegis' in gameboard[target].abilities:
-            targetfacing = self.targetDirectionUnitAttack(gameboard[target].direction)
-            if targetfacing[self.attackDirection(unit,target)] in [6,1,2]:
-                damage = 0
-        
-        if 'Sunder' in gameboard[unit].abilities:
-            multiplier = random.choice([x for x in range(0,gameboard[unit].attributeManager.getAttributes('Attack'))+1])
-            if multiplier > 0:
-                damage = damage * (multiplier+1)
+            if reaction != 'Pass':
+                print(gameboard[target])
+                print(reaction)
+                gameboard, damage, target = gameboard[target].abilities[reaction].abilityEffect(target,unit,gameboard,damage)
                 
-        if 'Barter' in gameboard[target].abilities:
-            for x in range(0,damage):
-                gameboard[target].abilities['Attack'].abilityEffect(target,unit,gameboard)  
-                
-        gameboard[target].attributeManager.changeAttributes('Health',-damage)
-        if gameboard[target].attributeManager.getAttributes('Health') <= 0:
-
-            reaction = gameboard[unit].reactionManager.checkReaction(unit,target,gameboard,['EliminateUnit'])            
-            gameboard = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard)
-            if gameboard[target].name == 'Unit':
-                reaction = gameboard[target].reactionManager.checkReaction(target,unit,gameboard,['EliminateUnit'])            
-                gameboard = gameboard[target].abilities[reaction].abilityEffect(target,unit,gameboard)
-
-            gameboard = gameboard[unit].eliminateUnit(gameboard[target].unitType,unit,gameboard[target].playerID,gameboard)
+        if target: 
+            if 'AetherPulse' in args and gameboard[target].playerID != self.playerID and damage > 0:
+                gameboard[unit].abilities['AetherPulse'].recoverHealth(unit,gameboard)
             
+            if 'Aegis' in gameboard[target].abilities:
+                targetfacing = self.targetDirectionUnitAttack(gameboard[target].direction)
+                if targetfacing[self.attackDirection(unit,target)] in [6,1,2] or 'Nondirectional' in args:
+                    damage = 0
+            if unit in gameboard:
+                if 'Sunder' in gameboard[unit].abilities:
+                    multiplier = random.choice([x for x in range(0,gameboard[unit].attributeManager.getAttributes('Attack'))+1])
+                    if multiplier > 0:
+                        damage = damage * (multiplier+1)
+                    
+            if 'Barter' in gameboard[target].abilities:
+                for x in range(0,damage):
+                    gameboard[target].abilities['Attack'].abilityEffect(target,unit,gameboard)  
+                
+            gameboard[target].attributeManager.changeAttributes('Health',-damage)
         return gameboard      
         
+    def dealIndirectDamage(self,source,target,gameboard,damage,sourceID,*combatMods):
+        if target in gameboard:
+            gameboard['History']['target'].append(gameboard[target])
+        if combatMods:
+            combatMods = combatMods[0]
+        # this function is needed for damage sources coming from non units
+        # sources may not be in gameboard
+        if target not in gameboard or gameboard[target].name == 'Respawn':
+            return gameboard
+        
+        combatSteps = {
+                'CalcHit': random.randint(1,6),
+                'AddHit': 0,
+                'HitResult': 0,
+                'CalcEvasion': random.randint(1,6),
+                'AddEvasion':gameboard[target].attributeManager.getAttributes('Evasion'),
+                'EvasionResult':0,
+                'CombatResult':[],
+                'Damage': damage,
+                'AddDamage': 0,
+                'Armor': gameboard[target].attributeManager.getAttributes('Armor'),
+                'AddArmor': 0,
+                'ResultingDamage': 0,
+                'newPosition': False,
+                'AttackMods':combatMods
+        }
+        
+
+        if target in gameboard and gameboard[target].name == 'Unit':
+            gameboard, combatSteps = gameboard[target].indirectPassiveMods(source,target,gameboard,combatSteps) 
+
+        if 'Piercing' in combatMods:
+            if gameboard[target].unitClass == 'Engineer':
+                if 'Tank' in gameboard[target].unitBlueprints or 'Dreadnought' in gameboard[target].unitBlueprints:
+                    del combatMods['Piercing']
+            if 'Piercing' in combatMods:
+                combatSteps['Armor'] = 0
+
+        if 'AddHit' in combatMods:
+            combatSteps['AddHit'] = combatMods['AddHit']
+            
+        if 'Wounding' in combatMods:
+            combatSteps['CombatResult'] = 'Hit'
+        
+        combatSteps['HitResult'] = combatSteps['CalcHit'] + combatSteps['AddHit']
+        combatSteps['EvasionResult'] = combatSteps['CalcEvasion'] + combatSteps['AddEvasion']
+        if combatSteps['HitResult'] < combatSteps['EvasionResult']:
+            combatSteps['CombatResults'] = 'Evasion'
+        else:
+            combatSteps['CombatResults'] = 'Hit'
+        
+        if 'Wounding' in combatMods:
+            combatSteps['CombatResult'] = 'Hit'
+        
+        if combatSteps['CombatResults'] == 'Hit':
+            if gameboard[target].name == 'Unit':
+                reaction = gameboard[target].reactionManager.checkReaction(target,source,gameboard,['TakeDamage'])
+                if reaction != 'Pass':
+                    gameboard, combatSteps['Damage'], target = gameboard[target].abilities[reaction].abilityEffect(target,gameboard,combatSteps['Damage'])
+
+        combatSteps['ResultingDamage'] = combatSteps['Damage'] + combatSteps['AddDamage'] - combatSteps['Armor'] - combatSteps['AddArmor']
+        if combatSteps['ResultingDamage'] < 0:
+            combatSteps['ResultingDamage'] = 0
+
+        if 'Aegis' in gameboard[target].abilities:
+            targetfacing = self.targetDirectionUnitAttack(source,gameboard[target].direction)
+            if targetfacing[self.attackDirection(source,target)] in [6,1,2] or 'Nondirectional' in combatMods:
+                combatSteps['ResultingDamage'] = 0
+                
+        gameboard[target].attributeManager.changeAttributes('Health',-combatSteps['ResultingDamage'])
+        
+        # need to handle eliminated unit by attributing playerID directly
+
+        # if gameboard[target].attributeManager.getAttributes('Health') <= 0 and gameboard[target].name == 'Unit':
+        #     gameboard = gameboard[source].eliminateUnit(gameboard[target].unitType,target,sourceID,gameboard)
+            
+        return gameboard          
+    
     def getDistance(self,target,location):
         if (target[0] - location[0] >= 0 and target[1] - location[1] <= 0) or (target[0] - location[0] <= 0 and target[1] - location[1] >= 0):
             return abs(target[1]-location[1])+abs(target[0]-location[0])
@@ -364,14 +448,13 @@ class GeneralUse:
         else:
             moveable = True
         if gameboard[target].moveable and moveable:
+            targetobj = gameboard[target]
+            del gameboard[target]
             for x in range(1,spaces):
                 movedSpaces = movedSpaces + forced.get(direction)(movedSpaces[x-1])
                 if movedSpaces[x] in gameboard:
                     maxSpace = x-1
-                    print('Forced Movement')
-                    print(movedSpaces)
-                    gameboard[movedSpaces[x-1]] = gameboard[target]
-                    del gameboard[target]
+                    gameboard[movedSpaces[x-1]] = targetobj
                     # At this point the moved unit is at movedSpaces[x-1]
                     blockedSpace = movedSpaces[x]
                     index = x
@@ -412,8 +495,8 @@ class GeneralUse:
             damage = damage - gameboard[target].getArmor(gameboard)
         gameboard[blockedSpace].attributeManager.changeAttributes('Health',-damage)
         
-        if gameboard[target].attributeManager.getAttributes('Health') <= 0:
-            gameboard[unit].eliminateUnit(gameboard[target].unitType,gameboard[target].playerID)
+        # if gameboard[target].attributeManager.getAttributes('Health') <= 0:
+        #     gameboard[unit].eliminateUnit(gameboard[target].unitType,gameboard[target].playerID)
             
         if target in gameboard and blockedSpaces > 0 and 'Avalanche' in gameboard[unit].abilities:
             self.forcedMovement(blockedSpaces,direction,unit,target,gameboard)
@@ -423,7 +506,18 @@ class GeneralUse:
     def getAOETargets(self, unitRange, unitLocation, gameboard):
         for i in range(0,unitRange):
             spaces = list(set([a for b in [self.adjacentSpaces(x) for x in self.adjacentSpaces(unitLocation)] for a in b]))
-        spaces = [x for x in spaces if x in boardLocations and x in gameboard]
+        spaces = [x for x in spaces if x in boardLocations and x in gameboard and gameboard[x].name != 'Respawn']
+        if unitLocation in spaces:
+            spaces.remove(unitLocation)
+        # if x and y are changing in different directions (+/-) it is 2 spaces
+        # if x and y are changing in the same direction (+/+) it is 1 space
+        # if only x or y are changing it is 1 space
+        return spaces
+
+    def getEmptyAOETargets(self, unitRange, unitLocation, gameboard):
+        for i in range(0,unitRange):
+            spaces = list(set([a for b in [self.adjacentSpaces(x) for x in self.adjacentSpaces(unitLocation)] for a in b]))
+        spaces = [x for x in spaces if x in boardLocations and x not in gameboard]
         # if x and y are changing in different directions (+/-) it is 2 spaces
         # if x and y are changing in the same direction (+/+) it is 1 space
         # if only x or y are changing it is 1 space
@@ -454,19 +548,22 @@ class Ability(GeneralUse):
             spaces = self.getAOETargets(gameboard[unit].unitRange,unit,gameboard)
 
         LOS = gameboard[unit].lineOfSightManager.lineOfSight['Clear']+gameboard[unit].lineOfSightManager.lineOfSight['Partial']
-        potentialTargets = [x for x in list(set(LOS).intersection(set(spaces))) if x in gameboard]
-        potentialTargets = [x for x in potentialTargets if gameboard[x].name != 'Respawn']
+        potentialTargets = [x for x in list(set(LOS).intersection(set(spaces))) if x in gameboard and gameboard[x].playerID != self.playerID]
         return potentialTargets
     
     def getMeleeTargets(self,unit,gameboard):
         spaces = gameboard[unit].adjacentSpacesDir()
-        return [x for x in [spaces[6],spaces[1],spaces[2]] if x in gameboard]
+        return [x for x in [spaces[6],spaces[1],spaces[2]] if x in gameboard and gameboard[x].name != 'Respawn']
     
     def execute(self,unit,gameboard,*args):
         self.actionLog = {}
         potentialTargets = self.getTargets(unit,gameboard)
         if potentialTargets:
             target = random.choice(potentialTargets)
+            
+            gameboard['History']['source'] = gameboard[unit]
+            gameboard['History']['ability'] = [self.name]
+            
             # combatSteps is required for reactions but not others
             gameboard = self.abilityEffect(unit,target,gameboard)
             if target in gameboard and gameboard[target].name == 'Unit':
@@ -475,10 +572,14 @@ class Ability(GeneralUse):
         return gameboard
 
     def combat(self,unit,target,gameboard,*mods):
+        
         if unit in gameboard:
             unitObject = gameboard[unit]
         targetObject = gameboard[target]
-        gameboard[unit].setLastAction('Combat')
+        if unit in gameboard:
+            if gameboard[unit].name == 'Unit':
+                gameboard[unit].setLastAction('Combat')
+            
         if mods:
             mods = mods[0]
         # if stealth token is attacked, remove from board
@@ -535,19 +636,22 @@ class Ability(GeneralUse):
         # target reaction from melee
         if self.getDistance(unit,target) == 1:
             reaction = gameboard[unit].reactionManager.checkReaction(unit,target,gameboard,['TargetedMelee'])
-            gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
+            if reaction != 'Pass':
+                gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
         
         # add additional hit modifiers
         if gameboard[target].name == 'Unit':
             reaction = gameboard[unit].reactionManager.checkReaction(unit,target,gameboard,['AddHit'])
-            gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
+            if reaction != 'Pass':
+                gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
             
         combatSteps['HitResult'] = combatSteps['CalcHit'] + combatSteps['AddHit']
             
         # add additional evasion modifiers
         if gameboard[target].name == 'Unit':
             reaction = gameboard[target].reactionManager.checkReaction(target,unit,gameboard,['AddEvasion'])
-            gameboard,combatSteps = gameboard[target].abilities[reaction].abilityEffect(target,unit,gameboard,combatSteps)
+            if reaction != 'Pass':
+                gameboard,combatSteps = gameboard[target].abilities[reaction].abilityEffect(target,unit,gameboard,combatSteps)
             
         if combatSteps['newPosition']:
             unit = combatSteps['newPosition']
@@ -582,12 +686,15 @@ class Ability(GeneralUse):
         if combatSteps['CombatResult'] == 'Evasion':
             if combatSteps['EvasionResult'] >= combatSteps['HitResult'] + 3:
                 reaction = gameboard[target].reactionManager.checkReaction(target,unit,gameboard,['GreaterEvasion'])
-                gameboard, combatSteps = gameboard[target].abilities[reaction].abilityEffect(target,unit,gameboard,combatSteps)
+                if reaction != 'Pass':
+                    gameboard, combatSteps = gameboard[target].abilities[reaction].abilityEffect(target,unit,gameboard,combatSteps)
             else:
                 reaction = gameboard[target].reactionManager.checkReaction(target,unit,gameboard,['Evasion','Any'])
-                gameboard, combatSteps = gameboard[target].abilities[reaction].abilityEffect(target,unit,gameboard,combatSteps)                
+                if reaction != 'Pass':
+                    gameboard, combatSteps = gameboard[target].abilities[reaction].abilityEffect(target,unit,gameboard,combatSteps)                
             reaction = gameboard[unit].reactionManager.checkReaction(unit,target,gameboard,['MissedMeleeAttack','Any'])
-            gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
+            if reaction != 'Pass':
+                gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)
         
         if target in gameboard:
             if 'ArcaneShield' in gameboard[target].abilities:
@@ -597,7 +704,8 @@ class Ability(GeneralUse):
      
             if combatSteps['CombatResult'] == 'Hit' and 'Wounding' not in 'AttackMods' and gameboard[target].name == 'Unit':
                 reaction = gameboard[target].reactionManager.checkReaction(target,unit,gameboard,['LostEvasion'])
-                gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)                                  
+                if reaction != 'Pass':
+                    gameboard, combatSteps = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard,combatSteps)                                  
 
         if combatSteps['CombatResult'] == 'Hit':
             if 'Axe' in combatSteps['AttackMods']:
@@ -612,10 +720,11 @@ class Ability(GeneralUse):
                 if unitObject.unitType == 'Common':
                     gameboard['DamageBonus'] = mods['Assassin']
                 
-            gameboard = self.dealDamage(unit,target,gameboard,combatSteps['ResultingDamage'],mods)
+            gameboard = self.dealDamage(unit,target,gameboard,combatSteps['ResultingDamage'])
         if unit in gameboard and target in gameboard:
             reaction = gameboard[unit].reactionManager.checkReaction(unit,target,gameboard,['AfterAttack'])
-            gameboard = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard)
+            if reaction != 'Pass':
+                gameboard = gameboard[unit].abilities[reaction].abilityEffect(unit,target,gameboard)
         # ask if you want to react -> yes? ->  call function from inside here
         
         return gameboard
@@ -673,7 +782,7 @@ class Movement(Ability):
     
     def availableMovement(self,unit,gameboard,origin,*effects):
         effects = effects[0]
-        respawns = [x for x in gameboard if gameboard[x].name == 'Respawn']
+        respawns = [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'Respawn']
         respawnSpaces = [a for b in [self.adjacentSpaces(x) for x in respawns if gameboard[x].playerID == self.playerID] for a in b if a not in gameboard]
         
         spaces = [x for x in self.adjacentSpaces(unit) if x not in gameboard or x == origin or (x in gameboard and gameboard[x].name == 'StealthToken')]
@@ -725,11 +834,11 @@ class Movement(Ability):
             else:
                 return gameboard
         else:
-            target = [gameboard[unit].adjacentSpacesDir(args['Direction'])]
-            if target in gameboard and gameboard[target].name != 'StealthToken':
+            target = [gameboard[unit].adjacentSpacesDir(args['Direction'])[1]]
+            if target[0] in gameboard and gameboard[target[0]].name != 'StealthToken':
                 return gameboard                
             for x in range(1,numberOfSpaces-2):
-                target = target + [self.adjacentSpacesDir({'Direction':args['Direction'],'Location':target[x-1]})]
+                target = target + [self.adjacentSpacesDir({'Direction':args['Direction'],'Location':target[x-1]})[1]]
             
         playerUnit = gameboard[unit]
         distance = 0
@@ -763,7 +872,7 @@ class Movement(Ability):
                     
         # check reactions
         for x in gameboard:
-            if gameboard[x].name == 'Unit':
+            if type(gameboard[x]) is tuple and gameboard[x].name == 'Unit':
                 gameboard[x].reactionManager.checkReaction(x,target,gameboard,['Any'])
         
         # remove movement points from unit
@@ -780,6 +889,9 @@ class Movement(Ability):
                     if gameboard[target[x]].name == 'StealthToken':
                         gameboard = gameboard[target[x]].stealthTokenEffect(unit,gameboard)
                         del gameboard[target[x]]
+                        if unit not in gameboard:
+                            # this means the stealth token destroyed the moving unit
+                            return gameboard
                 gameboard[unit].setDirection(random.choice(self.directions),gameboard)
                 
                 if target[x] not in gameboard:
@@ -1127,8 +1239,8 @@ class Unit(GeneralUse):
         self.attributeManager = AttributeManager(self.currentAttributes)
         self.captureCost = captureCost
         self.baseAbilities = {'Attack':Attack(playerID), 'Movement':Movement(playerID), 'Reorient':Reorient(playerID), 'Perception':Perception(playerID),
-                 'AccurateStrike': AccurateStrike(playerID),'Avoid':Avoid(playerID),'PurposefulDodge':PurposefulDodge(playerID),'RedirectedStrike':RedirectedStrike(playerID),
-                 'Pass':Pass(playerID)}
+                 'AccurateStrike': AccurateStrike(playerID),'Avoid':Avoid(playerID),'PurposefulDodge':PurposefulDodge(playerID),'RedirectedStrike':RedirectedStrike(playerID)
+                 }
         self.abilities = self.baseAbilities
         for x in self.abilities:
             self.abilities[x].unitName = self.unitName
@@ -1154,8 +1266,6 @@ class Unit(GeneralUse):
                 for cost in self.abilities[ability].cost['Turn']:
                     if set([cost]).issubset(set(useablePoints)):                        
                         useableAbilities = useableAbilities + [ability]
-        # if not useableAbilities:
-        #     print(self.unitType + self.unitClass)
         return useableAbilities # this is ability names
     
     def availablePoints(self):
@@ -1175,14 +1285,17 @@ class Unit(GeneralUse):
     def getLineOfSight(self,gameboard):
         self.lineOfSight = self.lineOfSightManager.allLineOfSight(self.direction,self.location,gameboard)
     
-    def createCombatModifiers(self,*args):
-        return args
+    def createCombatModifiers(self,**kwargs):
+        return kwargs
     
     def changeLocation(self,location):
         self.location = location
         return
     
     def passiveMods(self,unit,target,gameboard,combatSteps):
+        return gameboard,combatSteps
+
+    def indirectPassiveMods(self,unit,target,gameboard,combatSteps):
         return gameboard,combatSteps
     
     def movementEffects(self,unit,target,gameboard):
@@ -1191,7 +1304,8 @@ class Unit(GeneralUse):
     def addMovementSpaces(self,unit,origin,gameboard,spaces):
         return spaces
     
-    def eliminateUnit(self,unitType,unit,playerID,gameboard):
+    def eliminateUnit(self,unitType,target,playerID,gameboard):
+
         if self.playerID != playerID and unitType in ['Elite','Common','Objective']:
             self.eliminatedUnits[unitType] = self.eliminatedUnits[unitType] + 1
             if 'WarriorAttack' in self.abilities:
@@ -1201,11 +1315,18 @@ class Unit(GeneralUse):
                             x.weaponUpgrades[self.weapon] = x.weaponUpgrades[self.weapon] + 1
                 elif self.weaponUpgrades[self.weapon] < 3:
                     self.weaponUpgrades[self.weapon] = self.weaponUpgrades[self.weapon] + 1
-        gameboard[unit].location = 'None'
-        gameboard['EliminatedUnits'].eliminatedUnits[playerID + ' ' + gameboard[unit].name] = gameboard[unit]
-        del gameboard[unit]
+        gameboard[target].location = 'None'
+        # name of eliminated unit = {player who eliiminated: target object}
+        if gameboard[target].name != 'StealthToken':
+            # increment the type of unit by 1
+            gameboard['EliminatedUnits'].eliminatedUnits[playerID][gameboard[target].unitType] = gameboard['EliminatedUnits'].eliminatedUnits[playerID][gameboard[target].unitType] + 1
+        # del gameboard[target]
         return gameboard
-        
+    
+    # This function is for upgrades that come directly from eliminating units (weapons, houses, blueprints)
+    def eliminateUpgrade(self,gameboard):
+        return gameboard
+    
     def classUpgrades(self,unit):
         return 
         
@@ -1252,8 +1373,10 @@ class Player(GeneralUse):
         # while not passed keep going
         
         # refresh ability points from player object to gameboard
+        gameboard = self.respawnUnits(gameboard)
         gameboard = self.refreshPoints(gameboard)
         gameboard = self.beginningTurnEffects(gameboard)
+        
         # init action log
         self.actionLog = {}
         while True:
@@ -1261,7 +1384,7 @@ class Player(GeneralUse):
             # find units on the gameboard that you can use
             
             # unit choices looks at gameboard
-            unitChoices = {x:gameboard[x] for x in gameboard if gameboard[x].name == 'Unit' and gameboard[x].playerID == self.playerID}
+            unitChoices = {x:gameboard[x] for x in gameboard if type(x) is tuple and gameboard[x].name == 'Unit' and gameboard[x].playerID == self.playerID}
             
             # temp solution to update location
             for x in unitChoices:
@@ -1279,8 +1402,7 @@ class Player(GeneralUse):
             # unit choice key (x,y)
             # unitChoices['Pass'] = 'Pass'
             unitChoices = {x:unitChoices[x] for x in unitChoices if unitChoices[x].unitOptions}
-            # print(unitChoices)
-            # TO DO: Remove option to pass units or abilities. Use all available points
+
             if unitChoices:    
                 unitChoiceKey = random.choice(list(unitChoices))
             else:
@@ -1293,7 +1415,7 @@ class Player(GeneralUse):
 
             # choosing 'pass' in unitchoice will pass your turn since you don't act
             if unitChoiceObject == 'Pass':
-                # print('Pass')
+
                 for x in self.units:
                     for attr in ['Attack','Movement','Reaction','Special']:
                         self.units[x].attributeManager.setBonusAttributes(attr,0)
@@ -1306,20 +1428,37 @@ class Player(GeneralUse):
                 
                 ability = unitChoiceObject.abilities[random.choice(unitChoiceObject.unitOptions)]
                 self.abilityChoice = ability
-                # print(ability.name)
+
                 # subtract cost from unit points
                 for x in ability.cost['Turn']:
                     gameboard[unitChoiceKey].attributeManager.changeAttributes(x,-1)
-
-                gameboard = ability.execute(unitChoiceKey,gameboard)
                 
+                # temp = set([x for x in gameboard if type(x) is tuple and gameboard[x].name in ['Objective','Respawn']])
+                gameboard = ability.execute(unitChoiceKey,gameboard)
+                aunits = [x for x in gameboard if type(x) is tuple and gameboard[x].unitName == 'Unit' and gameboard[x].unitClass == 'Assassin']
+                if len(aunits) > 5:
+                    print(ability.name)
+                if gameboard['History']['source']:
+                    # manage eliminations here. check health
+                    source = [x for x in gameboard if type(x) is tuple and gameboard[x].name == gameboard['History']['source'].name
+                              and gameboard[x].unitName == gameboard['History']['source'].unitName and gameboard[x].playerID == gameboard['History']['source'].playerID][0]
+                    sourceEliminated = False
+                    if gameboard['History']['target']:
+                        self.manageElimination(source,gameboard,sourceEliminated)
+                gameboard['History'] = {'source':[],'target':[],'ability':[]}
+                      
+                # indirect damage
+                # if gameboard[target].attributeManager.getAttributes('Health') <= 0 and gameboard[target].name == 'Unit':
+                #     gameboard = gameboard[source].eliminateUnit(gameboard[target].unitType,target,sourceID,gameboard)
+
                 # if ability causes a change in damage bonus, add it to elite on board
                 if self.playerClass == 'Assassin' and 'DamageBonus' in gameboard:
                     self.damageBonus = self.damageBonus + gameboard['DamageBonus']
                     del gameboard['DamageBonus']
-                    elite = [x for x in gameboard if gameboard[x].playerID == self.playerID and gameboard[x].unitType == 'Elite']
+                    elite = [x for x in gameboard if type(x) is tuple and gameboard[x].playerID == self.playerID and gameboard[x].unitType == 'Elite']
                     if elite:
                         gameboard[elite[0]].damageBonus = self.damageBonus
+                    self.units['Elite'].damageBonus = self.damageBonus
                         
                 # if ability == 'Build':
                 #     target = unitChoiceObject.abilities['Build'].getTargets(unitChoiceObject.location,gameboard)
@@ -1341,32 +1480,91 @@ class Player(GeneralUse):
                 self.logNumber = self.logNumber + 1               
                 # create log of ability to be printed from action log
                 
-                
-            # else:
-                # print('Pass both')
-                
-            # check gameboard for eliminated units and update players' units
-            eliminatedUnits = [x for x in gameboard['EliminatedUnits'].eliminatedUnits]
-            for elimUnit in eliminatedUnits:
-                player = [x for x in players if x.playerID == gameboard['EliminatedUnits'].eliminatedUnits[elimUnit].playerID][0]
-                updateUnit = [x for x in player.units if player.units[x].name == gameboard['EliminatedUnits'].eliminatedUnits[elimUnit].name][0]
-                player.units[updateUnit] = gameboard['EliminatedUnits'].eliminatedUnits[elimUnit]
-            gameboard['EliminatedUnits'].eliminatedUnits = {}
-            
-            possibleUnits = [x for x in gameboard if gameboard[x].name == 'Unit']
+            # update individual units at the player level
+            possibleUnits = [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'Unit']
             for unit in possibleUnits:
-                if unit in gameboard:
-                    if gameboard[unit].playerID == self.playerID:
-                        # update units from gameboard to player object
-                        gameboard = self.updateUnits(unit,gameboard)
-                        gameboard[unit].location = unit
+                if gameboard[unit].playerID == self.playerID:
+                    # update units from gameboard to player object
+                    gameboard = self.updateUnits(unit,gameboard)
+                    gameboard[unit].location = unit
 #                        self.classUpgrades(gameboard[unit])
-                        gameboard[unit] = self.units[gameboard[unit].unitName]
-                    if gameboard[unit].attributeManager.getAttributes('Health') <= 0:
-                        del gameboard[unit]
+                    gameboard[unit] = self.units[gameboard[unit].unitName]
+
         gameboard = self.endTurnEffects(gameboard)
-        # print([x for x in gameboard if gameboard[x].name == 'Respawn'])
+
         return gameboard, players
+
+    def manageElimination(self,source,gameboard,sourceEliminated):
+        target = []
+        source = [x for x in gameboard if type(x) is tuple and gameboard[x].name == gameboard['History']['source'].name
+                  and gameboard[x].unitName == gameboard['History']['source'].unitName and gameboard[x].playerID == gameboard['History']['source'].playerID][0]
+        sourceEliminated = False
+        if gameboard['History']['target']:
+            for targetObj in gameboard['History']['target']:
+                if targetObj.name in ['Unit','Objective']:
+                    target = [x for x in gameboard if type(x) is tuple and gameboard[x].name == targetObj.name
+                              and gameboard[x].unitName == targetObj.unitName and gameboard[x].playerID == targetObj.playerID]
+
+                # sometimes target is not in gameboard?
+                if target:
+                    if type(target) is tuple:
+                        print(target)
+                    if type(target) is not tuple:
+                        target = target[0]
+                    if gameboard[target].attributeManager.getAttributes('Health') <= 0:
+                        reaction = gameboard[source].reactionManager.checkReaction(source,target,gameboard,['EliminateUnit'])            
+                        if reaction != 'Pass':
+                            gameboard = gameboard[source].abilities[reaction].abilityEffect(source,target,gameboard)
+                        
+                            source = [x for x in gameboard if type(x) is tuple and gameboard[x].name == gameboard['History']['source'].name
+                                      and gameboard[x].unitName == gameboard['History']['source'].unitName and gameboard[x].playerID == gameboard['History']['source'].playerID]
+                            target = [x for x in gameboard if type(x) is tuple and gameboard[x].name == targetObj.name
+                                      and gameboard[x].unitName == targetObj.unitName and gameboard[x].playerID == targetObj.playerID]
+                        
+                        gameboard = gameboard[source].eliminateUnit(gameboard[target].unitType,target,gameboard[source].playerID,gameboard)
+                        gameboard = gameboard[source].eliminateUpgrade(gameboard)
+                        
+                        if gameboard[target].name == 'Unit':
+                            reaction = gameboard[target].reactionManager.checkReaction(target,source,gameboard,['Eliminated'])            
+                            if reaction != 'Pass':
+                                gameboard = gameboard[target].abilities[reaction].abilityEffect(target,source,gameboard)
+                    
+                                # find source and target again if reaction caused a change in board state
+                                source = [x for x in gameboard if type(x) is tuple and gameboard[x].name == gameboard['History']['source'].name
+                                          and gameboard[x].unitName == gameboard['History']['source'].unitName and gameboard[x].playerID == gameboard['History']['source'].playerID]
+                                target = [x for x in gameboard if type(x) is tuple and gameboard[x].name == targetObj.name
+                                          and gameboard[x].unitName == targetObj.unitName and gameboard[x].playerID == targetObj.playerID]
+                                
+                                
+                                if gameboard[source].attributeManager.getAttributes('Health') <= 0:
+                                    if sourceEliminated == False:
+                                        gameboard = gameboard[target].eliminateUnit(gameboard[source].unitType,source,gameboard[target].playerID,gameboard)
+                                        gameboard = gameboard[target].eliminateUpgrade(gameboard)
+    
+                                        reaction = gameboard[target].reactionManager.checkReaction(target,source,gameboard,['EliminateUnit'])            
+                                        if reaction != 'Pass':
+                                            gameboard = gameboard[target].abilities[reaction].abilityEffect(target,source,gameboard)
+                                            # find source and target again if reaction caused a change in board state
+                                            source = [x for x in gameboard if type(x) is tuple and gameboard[x].name == gameboard['History']['source'].name
+                                                      and gameboard[x].unitName == gameboard['History']['source'].unitName and gameboard[x].playerID == gameboard['History']['source'].playerID]
+                                            target = [x for x in gameboard if type(x) is tuple and gameboard[x].name == targetObj.name
+                                                      and gameboard[x].unitName == targetObj.unitName and gameboard[x].playerID == targetObj.playerID]
+                
+                                        if gameboard[source].name == 'Unit':
+                                            reaction = gameboard[source].reactionManager.checkReaction(source,target,gameboard,['Eliminated'])            
+                                            if reaction != 'Pass':
+                                                gameboard = gameboard[source].abilities[reaction].abilityEffect(source,target,gameboard)
+                                                # find source and target again if reaction caused a change in board state
+                                                source = [x for x in gameboard if type(x) is tuple and gameboard[x].name == gameboard['History']['source'].name
+                                                          and gameboard[x].unitName == gameboard['History']['source'].unitName and gameboard[x].playerID == gameboard['History']['source'].playerID]
+                                                target = [x for x in gameboard if type(x) is tuple and gameboard[x].name == targetObj.name
+                                                          and gameboard[x].unitName == targetObj.unitName and gameboard[x].playerID == targetObj.playerID]
+      
+                                    sourceEliminated = True
+                        del gameboard[target]        
+                    
+                if sourceEliminated:
+                    del gameboard[source]
     
     def updateUnits(self,unit,gameboard):
         self.units[gameboard[unit].unitName] = gameboard[unit]
@@ -1377,16 +1575,17 @@ class Player(GeneralUse):
         return gameboard
     
     def respawnUnits(self,gameboard):
+                        
         # finds units not in gameboard but in player unit list
-        respawnPoints = [b for c in [self.adjacentSpaces(a) for a in [x for x in gameboard if gameboard[x].name == 'Respawn' and gameboard[x].playerID == self.playerID]] for b in c]
+        respawnPoints = [b for c in [self.adjacentSpaces(a) for a in [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'Respawn' and gameboard[x].playerID == self.playerID]] for b in c]
         respawnPoints = [x for x in respawnPoints if x in self.boardLocations and x not in gameboard]
-        print('available respawn points')
-        print(respawnPoints)
-        gameboardUnits = [gameboard[x].unitName for x in gameboard if gameboard[x].playerID == self.playerID and gameboard[x].name == 'Unit']
+                
+        gameboardUnits = [gameboard[x].unitName for x in gameboard if type(x) is tuple and gameboard[x].playerID == self.playerID and gameboard[x].name == 'Unit']
         
         units = [x for x in self.units if x not in gameboardUnits]
         
         if respawnPoints:
+
             for x in units:
                 location = random.choice(respawnPoints)
                 gameboard = self.addUnit(self.units[x], location , gameboard)
@@ -1394,11 +1593,16 @@ class Player(GeneralUse):
                 if not respawnPoints:
                     break
                 gameboard[location].direction = random.choice(self.directions)
+                
+        
         return gameboard
     
     def addUnit(self,unit,location,gameboard):
         # add one of your units to the board game
+        
         gameboard[location] = unit
+
+        gameboard['EliminatedUnits'].location = location
         gameboard[location].location = location
         gameboard[location].lineOfSightManager.setDirection(gameboard[location].direction,location,gameboard)
         gameboard[location].addBonuses()
@@ -1409,27 +1613,30 @@ class Player(GeneralUse):
     
     def manageExp(self,gameboard):
         # handle leveling and returning abilities
-        for unit in self.units:
-            self.experiencePoints = self.units[unit].eliminatedUnits['Elite'] + self.units[unit].eliminatedUnits['Common'] + self.units[unit].eliminatedUnits['Objective']
+
+        # if self.experiencePoints != 0 and self.level < 6:
+        #     self.victoryPoints = self.victoryPoints + 1
+        # elif self.experiencePoints == 0 and self.level < 6:
+        #     self.experiencePoints = 1
         
-        if self.experiencePoints != 0 and self.level < 6:
-            self.victoryPoints = self.victoryPoints + 1
-        elif self.experiencePoints == 0 and self.level < 6:
-            self.experiencePoints = 1
-        
-        if self.experiencePoints < 3:
-            for x in range(0,self.experiencePoints):
-                self.levelUp()
-        else:
-            for x in range(0,2):
-                self.levelUp()
-            self.victoryPoints = self.victoryPoints + self.experiencePoints -2
-        self.experiencePoints = 0
-        
+        # if self.experiencePoints < 3:
+        #     for x in range(0,self.experiencePoints):
+        #         self.levelUp()
+        # else:
+        #     for x in range(0,2):
+        #         self.levelUp()
+        #     self.victoryPoints = self.victoryPoints + self.experiencePoints -2
+        # self.experiencePoints = 0
+        self.levelUp()
         # update abilities in units in gameboard
-        units = [x for x in gameboard if gameboard[x].name == 'Unit' and gameboard[x].playerID == self.playerID]
-        for x in units:
-            gameboard[x].ablities = self.units[gameboard[x].unitName].abilities
+        # units = [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'Unit' and gameboard[x].playerID == self.playerID]
+        
+        if 'Common' in gameboard['EliminatedUnits'].eliminatedUnits[self.playerID]:
+            self.gainVictoryPoints(gameboard['EliminatedUnits'].eliminatedUnits[self.playerID]['Common'])
+        if 'Elite' in gameboard['EliminatedUnits'].eliminatedUnits[self.playerID]:
+            self.gainVictoryPoints(gameboard['EliminatedUnits'].eliminatedUnits[self.playerID]['Elite']*3)
+        if 'Objective' in gameboard['EliminatedUnits'].eliminatedUnits[self.playerID]:
+            self.gainVictoryPoints(gameboard['EliminatedUnits'].eliminatedUnits[self.playerID]['Objective'])
         return gameboard
     
     def levelUp(self):
@@ -1453,21 +1660,19 @@ class Player(GeneralUse):
         return
 
     def refreshPoints(self,gameboard):
-        unitChoices = {x:gameboard[x] for x in gameboard.keys() if gameboard[x].name == 'Unit' and gameboard[x].playerID == self.playerID}
+        unitChoices = {x:gameboard[x] for x in gameboard.keys() if type(x) is tuple and gameboard[x].name == 'Unit' and gameboard[x].playerID == self.playerID}
 
         for unit in self.units:
-            # note health, set max attributes, set current health
-            health = self.units[unit].attributeManager.getAttributes('Health')
             self.units[unit].levelManager.updateAttributes()
             unitAttributes = self.units[unit].levelManager.unitAttributes
             self.units[unit].attributeManager = AttributeManager(unitAttributes)
-            self.units[unit].attributeManager.setAttributes('Health',health)
         
         # update gameboard units from player object
         for unit in unitChoices:
+            # note health, set max attributes, set current health
+            health = gameboard[unit].attributeManager.getAttributes('Health')
             gameboard[unit] = self.units[gameboard[unit].unitName]
-            # print(gameboard[unit].attributeManager.currentAttributes)
-            # print(gameboard[unit].playerClass + gameboard[unit].playerID + gameboard[unit].unitType)
+            gameboard[unit].attributeManager.setAttributes('Health',health)
         
         return gameboard
     
@@ -1511,9 +1716,10 @@ class Objective(GeneralUse):
         def getAttributes(self,attr):
             return self.currentAttributes[attr]
     
-    def __init__(self,location,player):
+    def __init__(self,location,player,name):
         self.location = location
         self.playerID = player
+        self.unitName = name
         self.boardImage = MySprite('Objective','Objective')
 
     def availablePoints(self):
@@ -1531,6 +1737,7 @@ class Objective(GeneralUse):
 class Respawn(GeneralUse):
     name = 'Respawn'
     unitName = 'Respawn'
+    unitType = 'Respawn'
     moveable = False
     
     def __init__(self,location,player):
@@ -1542,6 +1749,7 @@ class Obstacle(GeneralUse):
     name = 'Obstacle'
     unitName = 'Obstacle'
     unitType = 'Obstacle'
+    unitClass = 'Obstacle'
     moveable = False
     aura = 'None'
 
@@ -1554,8 +1762,16 @@ class Obstacle(GeneralUse):
 class EliminatedUnitManager(GeneralUse):
 
     name = 'EUM'
-    eliminatedUnits = {}
-
+    eliminatedUnits = {'Player1':{'Common':0,'Elite':0,'Objective':0,'Obstacle':0},
+                       'Player2':{'Common':0,'Elite':0,'Objective':0,'Obstacle':0},
+                       'Player3':{'Common':0,'Elite':0,'Objective':0,'Obstacle':0},
+                       'Player4':{'Common':0,'Elite':0,'Objective':0,'Obstacle':0}}
+    
+    def resetManager(self):
+        self.eliminatedUnits =  {'Player1':{'Common':0,'Elite':0,'Objective':0,'Obstacle':0},
+                                 'Player2':{'Common':0,'Elite':0,'Objective':0,'Obstacle':0},
+                                 'Player3':{'Common':0,'Elite':0,'Objective':0,'Obstacle':0},
+                                 'Player4':{'Common':0,'Elite':0,'Objective':0,'Obstacle':0}}
 # need to ensure abilities are added correctly. not showing up in graphics 
 
 # gen = GeneralUse()

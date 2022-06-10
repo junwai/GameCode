@@ -686,7 +686,7 @@ class WarriorUnit(gen.Unit):
                 combatSteps['AttackMods'].remove('Wounding')
         if self.location == target:
             if [x for x in gameboard if type(x) is tuple and 'HoarFrost' in gameboard[x].abilities]:
-                elites = [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]
+                elites = [x for x in gameboard if type(x) is tuple and 'HoarFrost' in gameboard[x].abilities]
                 for x in elites:
                     if gameboard[x].getDistance(target) <= gameboard[x].attunement['Water']:
                         combatSteps['AddEvasion'] = combatSteps['AddEvasion'] - 2

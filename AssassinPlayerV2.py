@@ -232,7 +232,7 @@ class AssassinUnit(gen.Unit):
                     combatSteps['CalcHit'] = 2
                     self.abilities['Portent'].active = False
             if [x for x in gameboard if type(x) is tuple and 'HoarFrost' in gameboard[x].abilities]:
-                elites = [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]
+                elites = [x for x in gameboard if type(x) is tuple and 'HoarFrost' in gameboard[x].abilities]
                 for x in elites:
                     if gameboard[x].getDistance(target) <= gameboard[x].attunement['Water']:
                         combatSteps['AddEvasion'] = combatSteps['AddEvasion'] - 2        
@@ -243,15 +243,15 @@ class AssassinUnit(gen.Unit):
             combatSteps['AddEvasion'] = combatSteps['AddEvasion'] + len([x for x in self.adjacentSpaces(self.location) if x in gameboard and gameboard[x].name == 'StealthToken'])
         if 'Wounding' in combatSteps['AttackMods']:
             if 'Blur' in self.abilities:
-                combatSteps['AttackMods'].remove('Wounding')
+                del combatSteps['AttackMods']['Wounding']
                 combatSteps['CalcHit'] = 0
                 combatSteps['AddHit'] = 7
         if 'Portent' in self.abilities:
             if self.abilities['Portent'].active:
                 combatSteps['CalcHit'] = 2
                 self.abilities['Portent'].active = False
-        if [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]:
-            elites = [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]
+        if [x for x in gameboard if type(x) is tuple and 'HoarFrost' in gameboard[x].abilities]:
+            elites = [x for x in gameboard if type(x) is tuple and 'HoarFrost' in gameboard[x].abilities]
             for x in elites:
                 if gameboard[x].getDistance(target) <= gameboard[x].attunement['Water']:
                     combatSteps['AddEvasion'] = combatSteps['AddEvasion'] - 2    
@@ -267,7 +267,7 @@ class AssassinUnit(gen.Unit):
     def addMovementSpaces(self,unit,origin,gameboard,spaces):
         if 'Reaper' in self.abilities:
             if [x for x in self.adjacentSpaces(unit) if x in gameboard and gameboard[x].name in ['Objective','Respawn']]:
-                spaces = [a for b in [self.adjacentSpaces(x) for x in gameboard if gameboard[x].name in ['Objective','Respawn']] for a in b if a not in gameboard]
+                spaces = [a for b in [self.adjacentSpaces(x) for x in gameboard if type(x) is tuple and gameboard[x].name in ['Objective','Respawn']] for a in b if a not in gameboard]
         return spaces
 
 # Tier 0
@@ -315,7 +315,7 @@ class QuickStep(gen.Ability):
     def abilityEffect(self,unit,target,gameboard,combatSteps):
         combatSteps['AddEvasion'] = combatSteps['AddEvasion'] + 1
         gameboard = gameboard[unit].abilities['Movement'].abilityEffect(unit,target,gameboard,{'Distance':1,'Cost':'Passive'})
-        user = [x for x in gameboard if gameboard[x].name == 'Unit' and gameboard[x].unitName == self.unitName and gameboard[x].playerID == self.playerID]
+        user = [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'Unit' and gameboard[x].unitName == self.unitName and gameboard[x].playerID == self.playerID]
         if user:
             combatSteps['newPosition'] = user[0]
         return gameboard,combatSteps
@@ -353,12 +353,12 @@ class Rope(gen.Ability):
         return potentialTargets
     
     def abilityEffect(self,unit,target,gameboard,*combatSteps):
-        potentialTargets = [x for x in gameboard[target].adjacentSpaces(target) if gameboard[unit].getDistance(x) < gameboard[unit].getDistance(target)]
+        potentialTargets = [x for x in gameboard[target].adjacentSpaces(target) if gameboard[unit].getDistance(x) < gameboard[unit].getDistance(target) and x != unit]
         if potentialTargets:
             targetSpace = random.choice(potentialTargets)
             gameboard[targetSpace] = gameboard[target]
             gameboard[targetSpace].changeLocation(targetSpace)
-        del gameboard[target]
+            del gameboard[target]
         if combatSteps:
             return gameboard,combatSteps
         return gameboard
@@ -428,7 +428,7 @@ class DeepStrike(gen.Ability):
     cost = {'Turn':['Movement']}
     
     def getTargets(self,unit,gameboard):
-        spaces = [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'Respawn' or gameboard[x].name == 'Objective']
+        spaces = [x for x in gameboard if type(x) is tuple and gameboard[x].name in ['Respawn','Objective']]
         return [x for y in [self.adjacentSpaces(x) for x in spaces] for x in y if x in gameboard and gameboard[x] == 'StealthToken']            
     
     def abilityEffect(self,unit,target,gameboard):  
@@ -980,6 +980,7 @@ class AssassinPlayer(gen.Player):
             self.units[unit.unitName].captureCost = 'Movement'
         
     def beginningTurnEffects(self,gameboard):
+
         tokens = [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'StealthToken' and self.playerID == gameboard[x].playerID]
         if 'Camouflage' in self.abilities:
             if random.choice(['Pass','Camouflage']) == 'Camouflage':

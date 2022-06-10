@@ -7,8 +7,14 @@ Created on Wed Jul  1 21:57:03 2020
 
 class LineOfSight:
     
+    def __init__(self,direction):
+        self.direction = direction
+
+    def setDirection(self,direction,location,gameboard):
+        self.direction = direction
+        self.allLineOfSight(direction,location,gameboard)
+    
     def allLineOfSight(self,direction,location,gameboard):
-        
         LOS = self.getLineOfSight(direction,location)
         bpLOS = self.getBlockedPartialLineOfSight(direction,location)
         occupiedSpaces = [x for x in list(set([x for x in gameboard.keys()]).intersection(set(LOS)))]
@@ -19,9 +25,11 @@ class LineOfSight:
             if PartialLOS.count(x) > 1:
                 BlockedLOS.append(x)
         PartialLOS = list(set(PartialLOS)-set(PartialLOS).intersection(set(BlockedLOS)))
-        return {'Clear':list(set(LOS)-set(BlockedLOS)),'Blocked':list(set(BlockedLOS)),'Partial':PartialLOS}
+        self.lineOfSight = {'Clear':list(set(LOS)-set(BlockedLOS)),'Blocked':list(set(BlockedLOS)),'Partial':PartialLOS}
         
     def getLineOfSight(self,direction,location):
+        if type(location) == str:
+            print('Location:'+location)
         x = location[0]
         y = location[1]
         switchLOS = {
@@ -1341,7 +1349,3 @@ class LineOfSight:
                     }
             }
         return switchLOS.get(direction)
-
-gameboard = {(0,3):1,(2,2):2}
-los = LineOfSight()
-y = los.allLineOfSight('n',(0,0),gameboard)

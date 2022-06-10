@@ -763,7 +763,7 @@ class Grenade(gen.Ability):
     
     def abilityEffect(self,unit,target,gameboard):
         if target in gameboard:
-            gameboard = self.combat(unit,target,gameboard,{'Wounding':True,'Damage':2})
+            gameboard = self.dealIndirectDamage(unit,target,gameboard,2,self.playerID,{'Wounding':True})
         outertargets = [x for x in self.getAOETargets(1,target,gameboard) if x in gameboard]
         for x in outertargets:
             if x in gameboard:
@@ -975,7 +975,7 @@ class EngineerUnit(gen.Unit):
             if elite:
                 if 'RadarTower' in gameboard[elite].abilities:
                     rt = 0
-                    radarTower = [x for x in gameboard if gameboard[x].name == 'RadarTower']
+                    radarTower = [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'RadarTower']
                     if radarTower:
                         for x in radarTower:
                             if elite in self.getAOETargets(gameboard[x].auraRange,x,gameboard):
@@ -996,14 +996,14 @@ class EngineerUnit(gen.Unit):
 
         if self.location == target:
             if [x for x in gameboard if type(x) is tuple and 'HoarFrost' in gameboard[x].abilities]:
-                elites = [x for x in gameboard if 'HoarFrost' in gameboard[x].abilities]
+                elites = [x for x in gameboard if type(x) is tuple and 'HoarFrost' in gameboard[x].abilities]
                 for x in elites:
                     if gameboard[x].getDistance(target) <= gameboard[x].attunement['Water']:
                         combatSteps['AddEvasion'] = combatSteps['AddEvasion'] - 2
             if elite:
                 if 'RadarTower' in gameboard[elite].abilities:
                     rt = 0
-                    radarTower = [x for x in gameboard if gameboard[x].name == 'RadarTower']
+                    radarTower = [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'RadarTower']
                     if radarTower:
                         for x in radarTower:
                             if elite in self.getAOETargets(gameboard[x].auraRange,x,gameboard):
@@ -1017,7 +1017,7 @@ class EngineerUnit(gen.Unit):
                                 break
                 if 'Bunker' in gameboard[elite].abilities:
                     bk = 0
-                    bunker = [x for x in gameboard if gameboard[x].name == 'Bunker']
+                    bunker = [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'Bunker']
                     if bunker:
                         for x in bunker:
                             if elite in self.getAOETargets(gameboard[x].auraRange,x,gameboard):
@@ -1155,6 +1155,7 @@ class EngineerPlayer(gen.Player):
         return gameboard
     
     def respawnUnits(self,gameboard):
+        # print(['respawn '+self.playerID])
         # finds units not in gameboard but in player unit list
         respawnPoints = [b for c in [self.adjacentSpaces(a) for a in [x for x in gameboard if type(x) is tuple and gameboard[x].name == 'Respawn' and gameboard[x].playerID == self.playerID]] for b in c]
         respawnPoints = [x for x in respawnPoints if x in self.boardLocations and x not in gameboard]
